@@ -57,7 +57,13 @@ reproducible build.
   JSON descriptor, and requests one-subject GitHub provenance.
 - F's preflight has no Environment or secret. It authenticates exact E/current
   `main`, closes and snapshots the artifact inventory, binds E/F raw-Git blobs,
-  and publishes reviewable controls before the protected job can start.
+  and records the outer runtime/tool/provider settings plus six public-key IDs
+  in reviewable controls before the protected job can start.
+- Before any protected step references the private key, F requires the reviewed
+  settings snapshot to equal the live repository variables, preserves those
+  exact decoded Ed25519 public roots, freezes the controls and roots root-owned
+  beneath `/run` behind a checked hash inventory, and uses snapshot values for
+  the rest of the job.
 - F's protected job rechecks the controls, raw-Git blobs, runtime and tool
   hashes, provider identity, and six-key separation. The live provider runs as
   a dedicated non-root identity that cannot read the root-owned sixth private

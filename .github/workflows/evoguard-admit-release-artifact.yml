@@ -91,7 +91,18 @@ jobs:
           E_WORKFLOW_BLOB: ${{ vars.EVOGUARD_RELEASE_ARTIFACT_BUILD_WORKFLOW_BLOB_SHA }}
           F_WORKFLOW_ID: ${{ vars.EVOGUARD_RELEASE_ARTIFACT_ADMIT_WORKFLOW_ID }}
           F_WORKFLOW_BLOB: ${{ vars.EVOGUARD_RELEASE_ARTIFACT_ADMIT_WORKFLOW_BLOB_SHA }}
+          OUTER_RUNTIME_URL: ${{ vars.EVOGUARD_RELEASE_ARTIFACT_RUNTIME_URL }}
+          OUTER_RUNTIME_SHA256: ${{ vars.EVOGUARD_RELEASE_ARTIFACT_RUNTIME_SHA256 }}
           OUTER_GIT_SHA256: ${{ vars.EVOGUARD_RELEASE_ARTIFACT_GIT_EXECUTABLE_SHA256 }}
+          OUTER_GH_SHA256: ${{ vars.EVOGUARD_RELEASE_ARTIFACT_GH_EXECUTABLE_SHA256 }}
+          OUTER_PROVIDER_UID: ${{ vars.EVOGUARD_RELEASE_ARTIFACT_PROVIDER_ISOLATION_UID }}
+          OUTER_PROVIDER_GID: ${{ vars.EVOGUARD_RELEASE_ARTIFACT_PROVIDER_ISOLATION_GID }}
+          RAAE_PUBLIC_KEY_B64: ${{ vars.EVOGUARD_RELEASE_ARTIFACT_ADMISSION_V1_PUBLIC_KEY_B64 }}
+          V2_PUBLIC_KEY_B64: ${{ vars.EVOGUARD_RELEASE_SOURCE_ADMISSION_V2_PUBLIC_KEY_B64 }}
+          FINALIZER_PUBLIC_KEY_B64: ${{ vars.EVOGUARD_TRUSTED_FINALIZER_PUBLIC_KEY_B64 }}
+          ARTIFACT_V1_PUBLIC_KEY_B64: ${{ vars.EVOGUARD_ARTIFACT_ADMISSION_V1_PUBLIC_KEY_B64 }}
+          ARTIFACT_V2_PUBLIC_KEY_B64: ${{ vars.EVOGUARD_ARTIFACT_DIGEST_ADMISSION_V2_PUBLIC_KEY_B64 }}
+          SOURCE_V1_PUBLIC_KEY_B64: ${{ vars.EVOGUARD_RELEASE_SOURCE_FINALIZER_V1_PUBLIC_KEY_B64 }}
         run: |
           set -euo pipefail
           test "$RUNNER_ENVIRONMENT" = "github-hosted"
@@ -99,9 +110,38 @@ jobs:
           test "$GITHUB_WORKFLOW_SHA" = "$TARGET_SHA"
           for value in "$REPOSITORY_ID" "$BUILDER_RUN_ID" "$BUILDER_RUN_ATTEMPT" "$E_WORKFLOW_ID" "$F_WORKFLOW_ID" "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT"; do [[ "$value" =~ ^[1-9][0-9]*$ ]]; done
           for value in "$E_WORKFLOW_BLOB" "$F_WORKFLOW_BLOB"; do [[ "$value" =~ ^[0-9a-f]{40,64}$ ]]; done
-          [[ "$OUTER_GIT_SHA256" =~ ^[0-9a-f]{64}$ ]]
+          test -n "$OUTER_RUNTIME_URL"
+          [[ "$OUTER_RUNTIME_URL" =~ ^https://[^[:space:]]+$ ]]
+          for value in "$OUTER_RUNTIME_SHA256" "$OUTER_GIT_SHA256" "$OUTER_GH_SHA256"; do [[ "$value" =~ ^[0-9a-f]{64}$ ]]; done
+          for value in "$OUTER_PROVIDER_UID" "$OUTER_PROVIDER_GID"; do [[ "$value" =~ ^[1-9][0-9]*$ ]]; test "$value" -ne 65534; test "$value" -le 2147483647; done
           test "$E_WORKFLOW_ID" != "$F_WORKFLOW_ID"
           test "$E_WORKFLOW_BLOB" != "$F_WORKFLOW_BLOB"
+
+          mkdir -m 0700 "$RUNNER_TEMP/f-preflight-roots"
+          public_key_id() {
+            local name="$1" value="$2"
+            local path="$RUNNER_TEMP/f-preflight-roots/$name.pub.pem" der="$RUNNER_TEMP/f-preflight-roots/$name.pub.der" key_text digest_line digest
+            test -n "$value" || return 1
+            printf '%s' "$value" | base64 --decode > "$path" || return 1
+            chmod 0600 "$path" || return 1
+            key_text="$(openssl pkey -pubin -in "$path" -text_pub -noout)" || return 1
+            [[ "$key_text" == "ED25519 Public-Key:"* ]] || return 1
+            openssl pkey -pubin -in "$path" -outform DER -out "$der" || return 1
+            digest_line="$(sha256sum "$der")" || return 1
+            digest="${digest_line%% *}"
+            [[ "$digest" =~ ^[0-9a-f]{64}$ ]] || return 1
+            printf 'sha256:%s' "$digest"
+          }
+          RAAE_PUBLIC_KEY_ID="$(public_key_id release-artifact-admission-v1 "$RAAE_PUBLIC_KEY_B64")" || exit 1
+          V2_PUBLIC_KEY_ID="$(public_key_id release-source-admission-v2 "$V2_PUBLIC_KEY_B64")" || exit 1
+          FINALIZER_PUBLIC_KEY_ID="$(public_key_id trusted-finalizer "$FINALIZER_PUBLIC_KEY_B64")" || exit 1
+          ARTIFACT_V1_PUBLIC_KEY_ID="$(public_key_id artifact-admission-v1 "$ARTIFACT_V1_PUBLIC_KEY_B64")" || exit 1
+          ARTIFACT_V2_PUBLIC_KEY_ID="$(public_key_id artifact-digest-admission-v2 "$ARTIFACT_V2_PUBLIC_KEY_B64")" || exit 1
+          SOURCE_V1_PUBLIC_KEY_ID="$(public_key_id release-source-finalizer-v1 "$SOURCE_V1_PUBLIC_KEY_B64")" || exit 1
+          export RAAE_PUBLIC_KEY_ID V2_PUBLIC_KEY_ID FINALIZER_PUBLIC_KEY_ID ARTIFACT_V1_PUBLIC_KEY_ID ARTIFACT_V2_PUBLIC_KEY_ID SOURCE_V1_PUBLIC_KEY_ID
+          key_ids="$(printf '%s\n' "$RAAE_PUBLIC_KEY_ID" "$V2_PUBLIC_KEY_ID" "$FINALIZER_PUBLIC_KEY_ID" "$ARTIFACT_V1_PUBLIC_KEY_ID" "$ARTIFACT_V2_PUBLIC_KEY_ID" "$SOURCE_V1_PUBLIC_KEY_ID")"
+          test "$(printf '%s\n' "$key_ids" | sort -u | wc -l)" -eq 6
+          rm -rf -- "$RUNNER_TEMP/f-preflight-roots"
 
           python - "$RUNNER_TEMP/e-output-download" "$RUNNER_TEMP/f-controls" <<'PY'
           import os, pathlib, shutil, stat, sys
@@ -213,6 +253,26 @@ jobs:
               'repository': os.environ['GITHUB_REPOSITORY'],
               'repository_id': os.environ['REPOSITORY_ID'],
               'target_sha': os.environ['TARGET_SHA'],
+              'external_settings': {
+                  'runtime': {
+                      'url': os.environ['OUTER_RUNTIME_URL'],
+                      'sha256': os.environ['OUTER_RUNTIME_SHA256'],
+                  },
+                  'toolchain': {
+                      'git_sha256': os.environ['OUTER_GIT_SHA256'],
+                      'gh_sha256': os.environ['OUTER_GH_SHA256'],
+                      'provider_uid': int(os.environ['OUTER_PROVIDER_UID']),
+                      'provider_gid': int(os.environ['OUTER_PROVIDER_GID']),
+                  },
+                  'public_key_ids': {
+                      'release_artifact_admission_v1': os.environ['RAAE_PUBLIC_KEY_ID'],
+                      'release_source_admission_v2': os.environ['V2_PUBLIC_KEY_ID'],
+                      'trusted_finalizer': os.environ['FINALIZER_PUBLIC_KEY_ID'],
+                      'artifact_admission_v1': os.environ['ARTIFACT_V1_PUBLIC_KEY_ID'],
+                      'artifact_digest_admission_v2': os.environ['ARTIFACT_V2_PUBLIC_KEY_ID'],
+                      'release_source_finalizer_v1': os.environ['SOURCE_V1_PUBLIC_KEY_ID'],
+                  },
+              },
               'workflows': {'E': builder, 'F': admitter},
           }
           (root / 'f-control-manifest.json').write_text(json.dumps(manifest, sort_keys=True, separators=(',', ':')) + '\n', encoding='utf-8', newline='\n')
@@ -284,17 +344,103 @@ jobs:
           PY
           test "$(jq -r .target_sha "$RUNNER_TEMP/f-controls-safe/f-control-manifest.json")" = "$TARGET_SHA"
 
+      - name: Bind reviewer-approved external settings before private-key access
+        env:
+          OUTER_RUNTIME_URL: ${{ vars.EVOGUARD_RELEASE_ARTIFACT_RUNTIME_URL }}
+          OUTER_RUNTIME_SHA256: ${{ vars.EVOGUARD_RELEASE_ARTIFACT_RUNTIME_SHA256 }}
+          OUTER_GIT_SHA256: ${{ vars.EVOGUARD_RELEASE_ARTIFACT_GIT_EXECUTABLE_SHA256 }}
+          OUTER_GH_SHA256: ${{ vars.EVOGUARD_RELEASE_ARTIFACT_GH_EXECUTABLE_SHA256 }}
+          OUTER_PROVIDER_UID: ${{ vars.EVOGUARD_RELEASE_ARTIFACT_PROVIDER_ISOLATION_UID }}
+          OUTER_PROVIDER_GID: ${{ vars.EVOGUARD_RELEASE_ARTIFACT_PROVIDER_ISOLATION_GID }}
+          RAAE_PUBLIC_KEY_B64: ${{ vars.EVOGUARD_RELEASE_ARTIFACT_ADMISSION_V1_PUBLIC_KEY_B64 }}
+          V2_PUBLIC_KEY_B64: ${{ vars.EVOGUARD_RELEASE_SOURCE_ADMISSION_V2_PUBLIC_KEY_B64 }}
+          FINALIZER_PUBLIC_KEY_B64: ${{ vars.EVOGUARD_TRUSTED_FINALIZER_PUBLIC_KEY_B64 }}
+          ARTIFACT_V1_PUBLIC_KEY_B64: ${{ vars.EVOGUARD_ARTIFACT_ADMISSION_V1_PUBLIC_KEY_B64 }}
+          ARTIFACT_V2_PUBLIC_KEY_B64: ${{ vars.EVOGUARD_ARTIFACT_DIGEST_ADMISSION_V2_PUBLIC_KEY_B64 }}
+          SOURCE_V1_PUBLIC_KEY_B64: ${{ vars.EVOGUARD_RELEASE_SOURCE_FINALIZER_V1_PUBLIC_KEY_B64 }}
+        run: |
+          set -euo pipefail
+          manifest="$RUNNER_TEMP/f-controls-safe/f-control-manifest.json"
+          mkdir -m 0700 "$RUNNER_TEMP/f-approved-trust"
+          install_public() {
+            local name="$1" value="$2"
+            local path="$RUNNER_TEMP/f-approved-trust/$name.pub.pem" der="$RUNNER_TEMP/f-approved-trust/$name.pub.der" key_text digest_line digest
+            test -n "$value" || return 1
+            printf '%s' "$value" | base64 --decode > "$path" || return 1
+            chmod 0600 "$path" || return 1
+            key_text="$(openssl pkey -pubin -in "$path" -text_pub -noout)" || return 1
+            [[ "$key_text" == "ED25519 Public-Key:"* ]] || return 1
+            openssl pkey -pubin -in "$path" -outform DER -out "$der" || return 1
+            chmod 0600 "$der" || return 1
+            digest_line="$(sha256sum "$der")" || return 1
+            digest="${digest_line%% *}"
+            [[ "$digest" =~ ^[0-9a-f]{64}$ ]] || return 1
+            printf 'sha256:%s' "$digest"
+          }
+          RAAE_PUBLIC_KEY_ID="$(install_public release-artifact-admission-v1 "$RAAE_PUBLIC_KEY_B64")" || exit 1
+          V2_PUBLIC_KEY_ID="$(install_public release-source-admission-v2 "$V2_PUBLIC_KEY_B64")" || exit 1
+          FINALIZER_PUBLIC_KEY_ID="$(install_public trusted-finalizer "$FINALIZER_PUBLIC_KEY_B64")" || exit 1
+          ARTIFACT_V1_PUBLIC_KEY_ID="$(install_public artifact-admission-v1 "$ARTIFACT_V1_PUBLIC_KEY_B64")" || exit 1
+          ARTIFACT_V2_PUBLIC_KEY_ID="$(install_public artifact-digest-admission-v2 "$ARTIFACT_V2_PUBLIC_KEY_B64")" || exit 1
+          SOURCE_V1_PUBLIC_KEY_ID="$(install_public release-source-finalizer-v1 "$SOURCE_V1_PUBLIC_KEY_B64")" || exit 1
+          export RAAE_PUBLIC_KEY_ID V2_PUBLIC_KEY_ID FINALIZER_PUBLIC_KEY_ID ARTIFACT_V1_PUBLIC_KEY_ID ARTIFACT_V2_PUBLIC_KEY_ID SOURCE_V1_PUBLIC_KEY_ID
+          python - "$manifest" <<'PY'
+          import json, os, pathlib, re, sys
+          manifest = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding='utf-8'))
+          expected = {
+              'runtime': {
+                  'url': os.environ['OUTER_RUNTIME_URL'],
+                  'sha256': os.environ['OUTER_RUNTIME_SHA256'],
+              },
+              'toolchain': {
+                  'git_sha256': os.environ['OUTER_GIT_SHA256'],
+                  'gh_sha256': os.environ['OUTER_GH_SHA256'],
+                  'provider_uid': int(os.environ['OUTER_PROVIDER_UID']),
+                  'provider_gid': int(os.environ['OUTER_PROVIDER_GID']),
+              },
+              'public_key_ids': {
+                  'release_artifact_admission_v1': os.environ['RAAE_PUBLIC_KEY_ID'],
+                  'release_source_admission_v2': os.environ['V2_PUBLIC_KEY_ID'],
+                  'trusted_finalizer': os.environ['FINALIZER_PUBLIC_KEY_ID'],
+                  'artifact_admission_v1': os.environ['ARTIFACT_V1_PUBLIC_KEY_ID'],
+                  'artifact_digest_admission_v2': os.environ['ARTIFACT_V2_PUBLIC_KEY_ID'],
+                  'release_source_finalizer_v1': os.environ['SOURCE_V1_PUBLIC_KEY_ID'],
+              },
+          }
+          if manifest.get('external_settings') != expected:
+              raise SystemExit('reviewed F external settings changed before private-key access')
+          ids = list(expected['public_key_ids'].values())
+          if len(set(ids)) != 6 or any(not re.fullmatch(r'sha256:[0-9a-f]{64}', value) for value in ids):
+              raise SystemExit('reviewed F public-key domains are not six distinct canonical IDs')
+          if (not re.fullmatch(r'https://\S+', expected['runtime']['url']) or
+              any(not re.fullmatch(r'[0-9a-f]{64}', expected['toolchain'][name])
+                  for name in ('git_sha256', 'gh_sha256')) or
+              not re.fullmatch(r'[0-9a-f]{64}', expected['runtime']['sha256']) or
+              any(not 1 <= expected['toolchain'][name] <= 2147483647 or
+                  expected['toolchain'][name] == 65534
+                  for name in ('provider_uid', 'provider_gid'))):
+              raise SystemExit('reviewed F runtime/tool/provider settings are not canonical')
+          PY
+          sudo install -d -m 0700 -o root -g root \
+            /run/evoguard-raae-approved \
+            /run/evoguard-raae-approved/controls \
+            /run/evoguard-raae-approved/trust
+          sudo install -m 0444 -o root -g root "$RUNNER_TEMP"/f-controls-safe/* /run/evoguard-raae-approved/controls/
+          sudo install -m 0444 -o root -g root "$RUNNER_TEMP"/f-approved-trust/* /run/evoguard-raae-approved/trust/
+          sudo sh -ceu 'cd /run/evoguard-raae-approved; sha256sum controls/* trust/* > state.sha256; chmod 0444 state.sha256; chmod 0555 . controls trust'
+          rm -rf -- "$RUNNER_TEMP/f-controls-safe" "$RUNNER_TEMP/f-approved-trust"
+
       - name: Install hash-locked signing dependencies
         run: >-
           python -m pip install --disable-pip-version-check --only-binary=:all:
-          --require-hashes -r "$RUNNER_TEMP/f-controls-safe/signing-requirements.lock"
+          --require-hashes -r "/run/evoguard-raae-approved/controls/signing-requirements.lock"
 
       - name: Download and pin the published v4.2 RAAE runtime
-        env:
-          RUNTIME_URL: ${{ vars.EVOGUARD_RELEASE_ARTIFACT_RUNTIME_URL }}
-          RUNTIME_SHA256: ${{ vars.EVOGUARD_RELEASE_ARTIFACT_RUNTIME_SHA256 }}
         run: |
           set -euo pipefail
+          manifest="/run/evoguard-raae-approved/controls/f-control-manifest.json"
+          RUNTIME_URL="$(jq -er '.external_settings.runtime.url | select(type == "string")' "$manifest")"
+          RUNTIME_SHA256="$(jq -er '.external_settings.runtime.sha256 | select(type == "string")' "$manifest")"
           test -n "$RUNTIME_URL"
           [[ "$RUNTIME_SHA256" =~ ^[0-9a-f]{64}$ ]]
           curl --fail --location --proto '=https' --tlsv1.2 --output "$RUNNER_TEMP/evo-guard.pyz" "$RUNTIME_URL"
@@ -304,12 +450,13 @@ jobs:
       - name: Bind the outer toolchain and E/F raw Git blobs
         env:
           TARGET_SHA: ${{ needs.preflight.outputs.target_sha }}
-          E_WORKFLOW_BLOB: ${{ vars.EVOGUARD_RELEASE_ARTIFACT_BUILD_WORKFLOW_BLOB_SHA }}
-          F_WORKFLOW_BLOB: ${{ vars.EVOGUARD_RELEASE_ARTIFACT_ADMIT_WORKFLOW_BLOB_SHA }}
-          OUTER_GIT_SHA256: ${{ vars.EVOGUARD_RELEASE_ARTIFACT_GIT_EXECUTABLE_SHA256 }}
-          OUTER_GH_SHA256: ${{ vars.EVOGUARD_RELEASE_ARTIFACT_GH_EXECUTABLE_SHA256 }}
         run: |
           set -euo pipefail
+          manifest="/run/evoguard-raae-approved/controls/f-control-manifest.json"
+          E_WORKFLOW_BLOB="$(jq -er '.workflows.E.workflow_blob_sha | select(type == "string")' "$manifest")"
+          F_WORKFLOW_BLOB="$(jq -er '.workflows.F.workflow_blob_sha | select(type == "string")' "$manifest")"
+          OUTER_GIT_SHA256="$(jq -er '.external_settings.toolchain.git_sha256 | select(type == "string")' "$manifest")"
+          OUTER_GH_SHA256="$(jq -er '.external_settings.toolchain.gh_sha256 | select(type == "string")' "$manifest")"
           git_executable="$(readlink -f "$(command -v git)")"
           gh_executable="$(readlink -f "$(command -v gh)")"
           test -f "$git_executable" -a ! -L "$git_executable"
@@ -326,23 +473,34 @@ jobs:
           test "$(git -C "$objects" rev-parse "$TARGET_SHA:.github/workflows/evoguard-build-release-artifact.yml")" = "$E_WORKFLOW_BLOB"
           test "$(git -C "$objects" rev-parse "$TARGET_SHA:.github/workflows/evoguard-admit-release-artifact.yml")" = "$F_WORKFLOW_BLOB"
 
-      - name: Create the isolated provider and root-owned six-key trust material
-        env:
-          PROVIDER_UID: ${{ vars.EVOGUARD_RELEASE_ARTIFACT_PROVIDER_ISOLATION_UID }}
-          PROVIDER_GID: ${{ vars.EVOGUARD_RELEASE_ARTIFACT_PROVIDER_ISOLATION_GID }}
-          RAAE_PRIVATE_KEY_B64: ${{ secrets.EVOGUARD_RELEASE_ARTIFACT_ADMISSION_V1_PRIVATE_KEY_B64 }}
-          RAAE_PUBLIC_KEY_B64: ${{ vars.EVOGUARD_RELEASE_ARTIFACT_ADMISSION_V1_PUBLIC_KEY_B64 }}
-          V2_PUBLIC_KEY_B64: ${{ vars.EVOGUARD_RELEASE_SOURCE_ADMISSION_V2_PUBLIC_KEY_B64 }}
-          FINALIZER_PUBLIC_KEY_B64: ${{ vars.EVOGUARD_TRUSTED_FINALIZER_PUBLIC_KEY_B64 }}
-          ARTIFACT_V1_PUBLIC_KEY_B64: ${{ vars.EVOGUARD_ARTIFACT_ADMISSION_V1_PUBLIC_KEY_B64 }}
-          ARTIFACT_V2_PUBLIC_KEY_B64: ${{ vars.EVOGUARD_ARTIFACT_DIGEST_ADMISSION_V2_PUBLIC_KEY_B64 }}
-          SOURCE_V1_PUBLIC_KEY_B64: ${{ vars.EVOGUARD_RELEASE_SOURCE_FINALIZER_V1_PUBLIC_KEY_B64 }}
+      - name: Recheck the frozen reviewer-approved state before the secret step
         run: |
           set -euo pipefail
+          cd /run/evoguard-raae-approved
+          test "$(stat -c '%U:%G:%a' state.sha256)" = "root:root:444"
+          for directory in . controls trust; do
+            test "$(stat -c '%U:%G:%a' "$directory")" = "root:root:555"
+          done
+          while IFS= read -r file; do
+            test "$(stat -c '%U:%G:%a' "$file")" = "root:root:444"
+          done < <(find controls trust -type f -print | sort)
+          sha256sum --check --strict state.sha256
+
+      - name: Create the isolated provider and root-owned six-key trust material
+        env:
+          RAAE_PRIVATE_KEY_B64: ${{ secrets.EVOGUARD_RELEASE_ARTIFACT_ADMISSION_V1_PRIVATE_KEY_B64 }}
+        run: |
+          set -euo pipefail
+          manifest="/run/evoguard-raae-approved/controls/f-control-manifest.json"
+          PROVIDER_UID="$(jq -er '.external_settings.toolchain.provider_uid | select(type == "number")' "$manifest")"
+          PROVIDER_GID="$(jq -er '.external_settings.toolchain.provider_gid | select(type == "number")' "$manifest")"
           [[ "$PROVIDER_UID" =~ ^[1-9][0-9]*$ ]]
           [[ "$PROVIDER_GID" =~ ^[1-9][0-9]*$ ]]
           test "$PROVIDER_UID" -ne 65534
           test "$PROVIDER_GID" -ne 65534
+          test "$PROVIDER_UID" -le 2147483647
+          test "$PROVIDER_GID" -le 2147483647
+          (cd /run/evoguard-raae-approved && sha256sum --check --strict state.sha256)
           sudo groupadd --gid "$PROVIDER_GID" evoguard-raae-provider
           sudo useradd --uid "$PROVIDER_UID" --gid "$PROVIDER_GID" --no-create-home --no-user-group --shell /usr/sbin/nologin evoguard-raae-provider
           test "$(id -u evoguard-raae-provider)" = "$PROVIDER_UID"
@@ -351,20 +509,40 @@ jobs:
           sudo install -d -m 0755 -o root -g root /run/evoguard-raae /run/evoguard-raae/trust
           sudo install -d -m 0700 -o root -g root /run/evoguard-raae/signing
           install_public() {
-            local value="$1" destination="$2"
-            test -n "$value"
-            printf '%s' "$value" | sudo sh -c 'umask 022; base64 --decode > "$1"; chown root:root "$1"; chmod 0644 "$1"' _ "$destination"
+            local source="$1" destination="$2"
+            test -f "$source" -a ! -L "$source"
+            sudo install -m 0644 -o root -g root "$source" "$destination"
           }
-          install_public "$RAAE_PUBLIC_KEY_B64" /run/evoguard-raae/trust/release-artifact-admission-v1.pub.pem
-          install_public "$V2_PUBLIC_KEY_B64" /run/evoguard-raae/trust/release-source-admission-v2.pub.pem
-          install_public "$FINALIZER_PUBLIC_KEY_B64" /run/evoguard-raae/trust/trusted-finalizer.pub.pem
-          install_public "$ARTIFACT_V1_PUBLIC_KEY_B64" /run/evoguard-raae/trust/artifact-admission-v1.pub.pem
-          install_public "$ARTIFACT_V2_PUBLIC_KEY_B64" /run/evoguard-raae/trust/artifact-digest-admission-v2.pub.pem
-          install_public "$SOURCE_V1_PUBLIC_KEY_B64" /run/evoguard-raae/trust/release-source-finalizer-v1.pub.pem
+          install_public /run/evoguard-raae-approved/trust/release-artifact-admission-v1.pub.pem /run/evoguard-raae/trust/release-artifact-admission-v1.pub.pem
+          install_public /run/evoguard-raae-approved/trust/release-source-admission-v2.pub.pem /run/evoguard-raae/trust/release-source-admission-v2.pub.pem
+          install_public /run/evoguard-raae-approved/trust/trusted-finalizer.pub.pem /run/evoguard-raae/trust/trusted-finalizer.pub.pem
+          install_public /run/evoguard-raae-approved/trust/artifact-admission-v1.pub.pem /run/evoguard-raae/trust/artifact-admission-v1.pub.pem
+          install_public /run/evoguard-raae-approved/trust/artifact-digest-admission-v2.pub.pem /run/evoguard-raae/trust/artifact-digest-admission-v2.pub.pem
+          install_public /run/evoguard-raae-approved/trust/release-source-finalizer-v1.pub.pem /run/evoguard-raae/trust/release-source-finalizer-v1.pub.pem
+          assert_key_id() {
+            local field="$1" path="$2" der="$RUNNER_TEMP/provider-$1.pub.der" key_text digest_line digest expected
+            key_text="$(openssl pkey -pubin -in "$path" -text_pub -noout)"
+            [[ "$key_text" == "ED25519 Public-Key:"* ]]
+            openssl pkey -pubin -in "$path" -outform DER -out "$der"
+            digest_line="$(sha256sum "$der")"
+            digest="${digest_line%% *}"
+            expected="$(jq -er --arg field "$field" '.external_settings.public_key_ids[$field] | select(type == "string")' "$manifest")"
+            test "sha256:$digest" = "$expected"
+          }
+          assert_key_id release_artifact_admission_v1 /run/evoguard-raae/trust/release-artifact-admission-v1.pub.pem
+          assert_key_id release_source_admission_v2 /run/evoguard-raae/trust/release-source-admission-v2.pub.pem
+          assert_key_id trusted_finalizer /run/evoguard-raae/trust/trusted-finalizer.pub.pem
+          assert_key_id artifact_admission_v1 /run/evoguard-raae/trust/artifact-admission-v1.pub.pem
+          assert_key_id artifact_digest_admission_v2 /run/evoguard-raae/trust/artifact-digest-admission-v2.pub.pem
+          assert_key_id release_source_finalizer_v1 /run/evoguard-raae/trust/release-source-finalizer-v1.pub.pem
           test -n "$RAAE_PRIVATE_KEY_B64"
-          printf '%s' "$RAAE_PRIVATE_KEY_B64" | sudo sh -c 'umask 077; base64 --decode > "$1"; chown root:root "$1"; chmod 0600 "$1"' _ /run/evoguard-raae/signing/release-artifact-admission-v1.private.pem
-          ids="$(for key in /run/evoguard-raae/trust/*.pem; do openssl pkey -pubin -in "$key" -outform DER | sha256sum | cut -d' ' -f1; done)"
-          test "$(printf '%s\n' "$ids" | sort -u | wc -l)" -eq 6
+          printf '%s' "$RAAE_PRIVATE_KEY_B64" | sudo sh -ceu 'umask 077; base64 --decode > "$1"; chown root:root "$1"; chmod 0600 "$1"' _ /run/evoguard-raae/signing/release-artifact-admission-v1.private.pem
+          sudo openssl pkey -in /run/evoguard-raae/signing/release-artifact-admission-v1.private.pem -pubout -outform DER -out /run/evoguard-raae/signing/derived-public.der
+          private_digest_line="$(sudo sha256sum /run/evoguard-raae/signing/derived-public.der)"
+          private_digest="${private_digest_line%% *}"
+          expected_raae_id="$(jq -er '.external_settings.public_key_ids.release_artifact_admission_v1 | select(type == "string")' "$manifest")"
+          test "sha256:$private_digest" = "$expected_raae_id"
+          sudo rm -f -- /run/evoguard-raae/signing/derived-public.der
           command -v setpriv >/dev/null
           if sudo setpriv --reuid="$PROVIDER_UID" --regid="$PROVIDER_GID" --clear-groups \
             test -r /run/evoguard-raae/signing/release-artifact-admission-v1.private.pem; then
@@ -379,29 +557,30 @@ jobs:
           SOURCE_GH_SHA256: ${{ vars.EVOGUARD_GH_EXECUTABLE_SHA256 }}
           SOURCE_PROVIDER_UID: ${{ vars.EVOGUARD_PROVIDER_ISOLATION_UID }}
           SOURCE_PROVIDER_GID: ${{ vars.EVOGUARD_PROVIDER_ISOLATION_GID }}
-          OUTER_GIT_SHA256: ${{ vars.EVOGUARD_RELEASE_ARTIFACT_GIT_EXECUTABLE_SHA256 }}
-          OUTER_GH_SHA256: ${{ vars.EVOGUARD_RELEASE_ARTIFACT_GH_EXECUTABLE_SHA256 }}
-          OUTER_PROVIDER_UID: ${{ vars.EVOGUARD_RELEASE_ARTIFACT_PROVIDER_ISOLATION_UID }}
-          OUTER_PROVIDER_GID: ${{ vars.EVOGUARD_RELEASE_ARTIFACT_PROVIDER_ISOLATION_GID }}
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
+          manifest="/run/evoguard-raae-approved/controls/f-control-manifest.json"
+          OUTER_GIT_SHA256="$(jq -er '.external_settings.toolchain.git_sha256 | select(type == "string")' "$manifest")"
+          OUTER_GH_SHA256="$(jq -er '.external_settings.toolchain.gh_sha256 | select(type == "string")' "$manifest")"
+          OUTER_PROVIDER_UID="$(jq -er '.external_settings.toolchain.provider_uid | select(type == "number")' "$manifest")"
+          OUTER_PROVIDER_GID="$(jq -er '.external_settings.toolchain.provider_gid | select(type == "number")' "$manifest")"
           git_executable="$(cat "$RUNNER_TEMP/outer-git.path")"
           gh_executable="$(cat "$RUNNER_TEMP/outer-gh.path")"
           python_executable="$(readlink -f "$(command -v python3)")"
           sudo --preserve-env=GH_TOKEN,GITHUB_ACTIONS,GITHUB_REPOSITORY,GITHUB_REPOSITORY_ID,GITHUB_RUN_ID,GITHUB_RUN_ATTEMPT,GITHUB_EVENT_NAME,GITHUB_EVENT_PATH,GITHUB_REF,GITHUB_SHA,GITHUB_WORKFLOW_REF,GITHUB_WORKFLOW_SHA,RUNNER_ENVIRONMENT,RUNNER_TEMP \
             "$python_executable" -I "$RUNNER_TEMP/evo-guard.pyz" seal-github-release-artifact-admission \
-            "$RUNNER_TEMP/f-controls-safe/source-allow.rsae" \
-            "$RUNNER_TEMP/f-controls-safe/release-artifact.json" \
+            "/run/evoguard-raae-approved/controls/source-allow.rsae" \
+            "/run/evoguard-raae-approved/controls/release-artifact.json" \
             --out "$RUNNER_TEMP/release-artifact-allow.raae" \
-            --builder "$RUNNER_TEMP/f-controls-safe/builder.json" \
-            --admitter "$RUNNER_TEMP/f-controls-safe/admitter.json" \
-            --expected-release-source "$RUNNER_TEMP/f-controls-safe/source.json" \
-            --expected-release-source-context "$RUNNER_TEMP/f-controls-safe/context.json" \
-            --expected-release-source-producer "$RUNNER_TEMP/f-controls-safe/producer.json" \
-            --expected-release-source-admitter "$RUNNER_TEMP/f-controls-safe/source-admitter.json" \
+            --builder "/run/evoguard-raae-approved/controls/builder.json" \
+            --admitter "/run/evoguard-raae-approved/controls/admitter.json" \
+            --expected-release-source "/run/evoguard-raae-approved/controls/source.json" \
+            --expected-release-source-context "/run/evoguard-raae-approved/controls/context.json" \
+            --expected-release-source-producer "/run/evoguard-raae-approved/controls/producer.json" \
+            --expected-release-source-admitter "/run/evoguard-raae-approved/controls/source-admitter.json" \
             --expected-release-source-bootstrap-guard-sha "$SOURCE_BOOTSTRAP_SHA256" \
-            --expected-release-source-github-policy "$RUNNER_TEMP/f-controls-safe/source-github-policy.json" \
+            --expected-release-source-github-policy "/run/evoguard-raae-approved/controls/source-github-policy.json" \
             --expected-release-source-git-executable-sha256 "$SOURCE_GIT_SHA256" \
             --expected-release-source-gh-executable-sha256 "$SOURCE_GH_SHA256" \
             --expected-release-source-provider-isolation-uid "$SOURCE_PROVIDER_UID" \
@@ -421,6 +600,8 @@ jobs:
           test "$(jq -r .status "$RUNNER_TEMP/raae-seal-result.json")" = "SEALED"
           test "$(jq -r .decision "$RUNNER_TEMP/raae-seal-result.json")" = "ALLOW"
           test "$(jq -r .live_provider_reverification "$RUNNER_TEMP/raae-seal-result.json")" = "true"
+          install -m 0444 "/run/evoguard-raae-approved/controls/release-artifact.json" "$RUNNER_TEMP/release-artifact.json"
+          cmp --silent "/run/evoguard-raae-approved/controls/release-artifact.json" "$RUNNER_TEMP/release-artifact.json"
 
       - name: Upload only the sealed RAAE, artifact, and public result
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -428,7 +609,7 @@ jobs:
           name: evoguard-release-artifact-admission-v1-${{ github.run_attempt }}
           path: |
             ${{ runner.temp }}/release-artifact-allow.raae
-            ${{ runner.temp }}/f-controls-safe/release-artifact.json
+            ${{ runner.temp }}/release-artifact.json
             ${{ runner.temp }}/raae-seal-result.json
           if-no-files-found: error
           include-hidden-files: false
@@ -436,4 +617,4 @@ jobs:
 
       - name: Remove protected RAAE signing material
         if: always()
-        run: sudo rm -rf -- /run/evoguard-raae
+        run: sudo rm -rf -- /run/evoguard-raae /run/evoguard-raae-approved
