@@ -1,0 +1,386 @@
+name: EvoGuard Verify Release Artifact
+
+on:
+  workflow_run: # zizmor: ignore[dangerous-triggers] G authenticates exact F and verifies retained bytes without secrets/provider access
+    workflows: ["EvoGuard Admit Release Artifact"]
+    types: [completed]
+
+permissions: {}
+
+jobs:
+  detached-verify:
+    if: vars.EVOGUARD_RELEASE_ARTIFACT_ADMISSION_V1_ENABLED == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      actions: read
+      contents: read
+    steps:
+      - name: Validate exact successful protected F and G revision
+        id: bind
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          EXPECTED_E_WORKFLOW_ID: ${{ vars.EVOGUARD_RELEASE_ARTIFACT_BUILD_WORKFLOW_ID }}
+          EXPECTED_F_WORKFLOW_ID: ${{ vars.EVOGUARD_RELEASE_ARTIFACT_ADMIT_WORKFLOW_ID }}
+          EXPECTED_G_WORKFLOW_ID: ${{ vars.EVOGUARD_RELEASE_ARTIFACT_VERIFY_WORKFLOW_ID }}
+          EXPECTED_E_WORKFLOW_BLOB: ${{ vars.EVOGUARD_RELEASE_ARTIFACT_BUILD_WORKFLOW_BLOB_SHA }}
+          EXPECTED_F_WORKFLOW_BLOB: ${{ vars.EVOGUARD_RELEASE_ARTIFACT_ADMIT_WORKFLOW_BLOB_SHA }}
+          EXPECTED_G_WORKFLOW_BLOB: ${{ vars.EVOGUARD_RELEASE_ARTIFACT_VERIFY_WORKFLOW_BLOB_SHA }}
+        with:
+          script: |
+            const numeric = /^[1-9][0-9]*$/;
+            const blob = /^[0-9a-f]{40,64}$/;
+            if (!numeric.test(process.env.EXPECTED_E_WORKFLOW_ID || '') ||
+                !numeric.test(process.env.EXPECTED_F_WORKFLOW_ID || '') ||
+                !numeric.test(process.env.EXPECTED_G_WORKFLOW_ID || '') ||
+                !blob.test(process.env.EXPECTED_E_WORKFLOW_BLOB || '') ||
+                !blob.test(process.env.EXPECTED_F_WORKFLOW_BLOB || '') ||
+                !blob.test(process.env.EXPECTED_G_WORKFLOW_BLOB || '')) {
+              core.setFailed('invalid configured E/F/G identity');
+            }
+            if (new Set([
+                  process.env.EXPECTED_E_WORKFLOW_ID,
+                  process.env.EXPECTED_F_WORKFLOW_ID,
+                  process.env.EXPECTED_G_WORKFLOW_ID,
+                ]).size !== 3 ||
+                new Set([
+                  process.env.EXPECTED_E_WORKFLOW_BLOB,
+                  process.env.EXPECTED_F_WORKFLOW_BLOB,
+                  process.env.EXPECTED_G_WORKFLOW_BLOB,
+                ]).size !== 3) {
+              core.setFailed('configured E/F/G identities are not distinct');
+            }
+            const run = context.payload.workflow_run;
+            if (!run || run.status !== 'completed' || run.conclusion !== 'success' ||
+                run.event !== 'workflow_run' || run.workflow_id !== Number(process.env.EXPECTED_F_WORKFLOW_ID) ||
+                run.path !== '.github/workflows/evoguard-admit-release-artifact.yml' ||
+                run.head_branch !== 'main' || run.head_sha !== context.sha ||
+                run.head_repository?.id !== context.payload.repository.id ||
+                run.head_repository?.full_name !== context.payload.repository.full_name) {
+              core.setFailed('triggering F run does not match protected artifact admitter');
+            }
+            if (process.env.GITHUB_SHA !== process.env.GITHUB_WORKFLOW_SHA ||
+                process.env.GITHUB_SHA !== run.head_sha) {
+              core.setFailed('G workflow source does not equal F protected-main source');
+            }
+            const {data: eWorkflow} = await github.rest.actions.getWorkflow({
+              owner: context.repo.owner, repo: context.repo.repo,
+              workflow_id: Number(process.env.EXPECTED_E_WORKFLOW_ID),
+            });
+            const {data: fWorkflow} = await github.rest.actions.getWorkflow({
+              owner: context.repo.owner, repo: context.repo.repo, workflow_id: run.workflow_id,
+            });
+            const {data: gWorkflow} = await github.rest.actions.getWorkflow({
+              owner: context.repo.owner, repo: context.repo.repo,
+              workflow_id: Number(process.env.EXPECTED_G_WORKFLOW_ID),
+            });
+            if (eWorkflow.path !== '.github/workflows/evoguard-build-release-artifact.yml' ||
+                fWorkflow.path !== '.github/workflows/evoguard-admit-release-artifact.yml' ||
+                gWorkflow.path !== '.github/workflows/evoguard-verify-release-artifact.yml') {
+              core.setFailed('configured E/F/G workflow path is incorrect');
+            }
+            const {data: branch} = await github.rest.repos.getBranch({
+              owner: context.repo.owner, repo: context.repo.repo, branch: 'main',
+            });
+            if (!branch.protected || branch.commit.sha !== run.head_sha) {
+              core.setFailed('main is not protected or moved before G');
+            }
+            const {data: commit} = await github.rest.git.getCommit({
+              owner: context.repo.owner, repo: context.repo.repo, commit_sha: run.head_sha,
+            });
+            const {data: tree} = await github.rest.git.getTree({
+              owner: context.repo.owner, repo: context.repo.repo,
+              tree_sha: commit.tree.sha, recursive: 'true',
+            });
+            const expected = new Map([
+              ['.github/workflows/evoguard-build-release-artifact.yml', process.env.EXPECTED_E_WORKFLOW_BLOB],
+              ['.github/workflows/evoguard-admit-release-artifact.yml', process.env.EXPECTED_F_WORKFLOW_BLOB],
+              ['.github/workflows/evoguard-verify-release-artifact.yml', process.env.EXPECTED_G_WORKFLOW_BLOB],
+            ]);
+            for (const [path, expectedBlob] of expected) {
+              const item = tree.tree.find(entry => entry.path === path);
+              if (!item || item.type !== 'blob' || item.sha !== expectedBlob) {
+                core.setFailed(`${path} raw-Git blob does not match the admitted tree`);
+              }
+            }
+            core.setOutput('f_run_id', String(run.id));
+            core.setOutput('f_run_attempt', String(run.run_attempt));
+            core.setOutput('repository_id', String(context.payload.repository.id));
+            core.setOutput('target_sha', run.head_sha);
+
+      - name: Download the exact sealed F output
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: evoguard-release-artifact-admission-v1-${{ steps.bind.outputs.f_run_attempt }}
+          path: ${{ runner.temp }}/f-admission-download
+          run-id: ${{ steps.bind.outputs.f_run_id }}
+          github-token: ${{ github.token }}
+
+      - name: Download the exact no-secret F controls
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: evoguard-release-artifact-v1-controls-${{ steps.bind.outputs.f_run_attempt }}
+          path: ${{ runner.temp }}/f-controls-download
+          run-id: ${{ steps.bind.outputs.f_run_id }}
+          github-token: ${{ github.token }}
+
+      - name: Snapshot exact detached verification inputs
+        env:
+          TARGET_SHA: ${{ steps.bind.outputs.target_sha }}
+          REPOSITORY_ID: ${{ steps.bind.outputs.repository_id }}
+          F_RUN_ID: ${{ steps.bind.outputs.f_run_id }}
+          F_RUN_ATTEMPT: ${{ steps.bind.outputs.f_run_attempt }}
+          E_WORKFLOW_ID: ${{ vars.EVOGUARD_RELEASE_ARTIFACT_BUILD_WORKFLOW_ID }}
+          E_WORKFLOW_BLOB: ${{ vars.EVOGUARD_RELEASE_ARTIFACT_BUILD_WORKFLOW_BLOB_SHA }}
+          F_WORKFLOW_ID: ${{ vars.EVOGUARD_RELEASE_ARTIFACT_ADMIT_WORKFLOW_ID }}
+          F_WORKFLOW_BLOB: ${{ vars.EVOGUARD_RELEASE_ARTIFACT_ADMIT_WORKFLOW_BLOB_SHA }}
+        run: |
+          set -euo pipefail
+          test "$RUNNER_ENVIRONMENT" = "github-hosted"
+          test "$GITHUB_SHA" = "$TARGET_SHA"
+          test "$GITHUB_WORKFLOW_SHA" = "$TARGET_SHA"
+          python - "$RUNNER_TEMP/f-admission-download" "$RUNNER_TEMP/f-controls-download" "$RUNNER_TEMP/g-inputs" <<'PY'
+          import os, pathlib, shutil, stat, sys
+          admission, controls, destination = map(pathlib.Path, sys.argv[1:])
+          if {path.name for path in admission.iterdir()} != {
+              'release-artifact-allow.raae', 'release-artifact.json', 'raae-seal-result.json'
+          }:
+              raise SystemExit('sealed F inventory is not closed')
+          expected_controls = {
+              'release-artifact.json', 'builder-controls.json', 'source-allow.rsae',
+              'source.json', 'context.json', 'producer.json', 'source-admitter.json',
+              'source-github-policy.json', 'signing-requirements.lock', 'builder.json',
+              'admitter.json', 'f-control-manifest.json',
+          }
+          if {path.name for path in controls.iterdir()} != expected_controls:
+              raise SystemExit('F control inventory is not closed')
+          destination.mkdir(mode=0o700)
+          sources = [
+              (admission / 'release-artifact-allow.raae', 'release-artifact-allow.raae', 64 * 1024 * 1024),
+              (admission / 'release-artifact.json', 'sealed-release-artifact.json', 1024 * 1024),
+              (controls / 'release-artifact.json', 'control-release-artifact.json', 1024 * 1024),
+              (admission / 'raae-seal-result.json', 'raae-seal-result.json', 1024 * 1024),
+              *[(controls / name, name, 64 * 1024 * 1024 if name == 'source-allow.rsae' else 1024 * 1024)
+                for name in expected_controls if name != 'release-artifact.json'],
+          ]
+          for path, name, limit in sources:
+              before = path.lstat()
+              if stat.S_ISLNK(before.st_mode) or not stat.S_ISREG(before.st_mode) or before.st_size > limit:
+                  raise SystemExit(f'unsafe G input: {name}')
+              descriptor = os.open(path, os.O_RDONLY | getattr(os, 'O_NOFOLLOW', 0))
+              try:
+                  opened = os.fstat(descriptor)
+                  if (opened.st_dev, opened.st_ino, opened.st_size) != (before.st_dev, before.st_ino, before.st_size):
+                      raise SystemExit(f'G input changed: {name}')
+                  with os.fdopen(descriptor, 'rb', closefd=False) as stream, (destination / name).open('xb') as output:
+                      shutil.copyfileobj(stream, output, 64 * 1024)
+              finally:
+                  os.close(descriptor)
+          sealed = destination / 'sealed-release-artifact.json'
+          control = destination / 'control-release-artifact.json'
+          if sealed.read_bytes() != control.read_bytes():
+              raise SystemExit('sealed and control artifact bytes differ')
+          sealed.replace(destination / 'release-artifact.json')
+          control.unlink()
+          PY
+          python - "$RUNNER_TEMP/g-inputs" <<'PY'
+          import hashlib, json, os, pathlib, sys
+          root = pathlib.Path(sys.argv[1])
+          def load(name):
+              return json.loads((root / name).read_text(encoding='utf-8'))
+          def descriptor(name):
+              data = (root / name).read_bytes()
+              return {'sha256': hashlib.sha256(data).hexdigest(), 'size': len(data)}
+          builder = load('builder.json')
+          admitter = load('admitter.json')
+          manifest = load('f-control-manifest.json')
+          fixed = {
+              'workflow_repository': os.environ['GITHUB_REPOSITORY'],
+              'workflow_repository_id': os.environ['REPOSITORY_ID'],
+              'workflow_ref': 'refs/heads/main',
+              'workflow_commit_sha': os.environ['TARGET_SHA'],
+              'runner_class': 'github-hosted',
+          }
+          expected_builder = {
+              **fixed,
+              'workflow_id': os.environ['E_WORKFLOW_ID'],
+              'workflow_path': '.github/workflows/evoguard-build-release-artifact.yml',
+              'workflow_blob_sha': os.environ['E_WORKFLOW_BLOB'],
+              'workflow_run_id': builder.get('workflow_run_id'),
+              'workflow_run_attempt': builder.get('workflow_run_attempt'),
+              'workflow_event': 'workflow_dispatch',
+          }
+          expected_admitter = {
+              **fixed,
+              'workflow_id': os.environ['F_WORKFLOW_ID'],
+              'workflow_path': '.github/workflows/evoguard-admit-release-artifact.yml',
+              'workflow_blob_sha': os.environ['F_WORKFLOW_BLOB'],
+              'workflow_run_id': os.environ['F_RUN_ID'],
+              'workflow_run_attempt': int(os.environ['F_RUN_ATTEMPT']),
+              'workflow_event': 'workflow_run',
+          }
+          if builder != expected_builder or admitter != expected_admitter:
+              raise SystemExit('detached E/F identity does not match external roots')
+          if (not isinstance(builder.get('workflow_run_id'), str) or
+              not builder['workflow_run_id'].isdigit() or
+              not isinstance(builder.get('workflow_run_attempt'), int) or
+              builder['workflow_run_attempt'] < 1):
+              raise SystemExit('detached E run identity is not canonical')
+          expected_manifest = {
+              'format': 'EVOGUARD_RAAE_PILOT_F_CONTROLS_V1',
+              'artifact': descriptor('release-artifact.json'),
+              'release_source_admission': descriptor('source-allow.rsae'),
+              'repository': os.environ['GITHUB_REPOSITORY'],
+              'repository_id': os.environ['REPOSITORY_ID'],
+              'target_sha': os.environ['TARGET_SHA'],
+              'workflows': {'E': builder, 'F': admitter},
+          }
+          if manifest != expected_manifest:
+              raise SystemExit('detached F control manifest is not canonical')
+          PY
+          test "$(jq -r .status "$RUNNER_TEMP/g-inputs/raae-seal-result.json")" = "SEALED"
+          test "$(jq -r .decision "$RUNNER_TEMP/g-inputs/raae-seal-result.json")" = "ALLOW"
+
+      - name: Set up the detached verifier Python runtime
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: "3.12"
+
+      - name: Install hash-locked signing verification dependencies
+        run: >-
+          python -m pip install --disable-pip-version-check --only-binary=:all:
+          --require-hashes -r "$RUNNER_TEMP/g-inputs/signing-requirements.lock"
+
+      - name: Download and pin the published v4.2 detached verifier
+        env:
+          RUNTIME_URL: ${{ vars.EVOGUARD_RELEASE_ARTIFACT_RUNTIME_URL }}
+          RUNTIME_SHA256: ${{ vars.EVOGUARD_RELEASE_ARTIFACT_RUNTIME_SHA256 }}
+        run: |
+          set -euo pipefail
+          test -n "$RUNTIME_URL"
+          [[ "$RUNTIME_SHA256" =~ ^[0-9a-f]{64}$ ]]
+          curl --fail --location --proto '=https' --tlsv1.2 --output "$RUNNER_TEMP/evo-guard.pyz" "$RUNTIME_URL"
+          printf '%s  %s\n' "$RUNTIME_SHA256" "$RUNNER_TEMP/evo-guard.pyz" | sha256sum --check
+          test "$(python -I "$RUNNER_TEMP/evo-guard.pyz" version)" = "evo-guard 4.2.0"
+
+      - name: Decode six external public trust roots
+        env:
+          RAAE_PUBLIC_KEY_B64: ${{ vars.EVOGUARD_RELEASE_ARTIFACT_ADMISSION_V1_PUBLIC_KEY_B64 }}
+          V2_PUBLIC_KEY_B64: ${{ vars.EVOGUARD_RELEASE_SOURCE_ADMISSION_V2_PUBLIC_KEY_B64 }}
+          FINALIZER_PUBLIC_KEY_B64: ${{ vars.EVOGUARD_TRUSTED_FINALIZER_PUBLIC_KEY_B64 }}
+          ARTIFACT_V1_PUBLIC_KEY_B64: ${{ vars.EVOGUARD_ARTIFACT_ADMISSION_V1_PUBLIC_KEY_B64 }}
+          ARTIFACT_V2_PUBLIC_KEY_B64: ${{ vars.EVOGUARD_ARTIFACT_DIGEST_ADMISSION_V2_PUBLIC_KEY_B64 }}
+          SOURCE_V1_PUBLIC_KEY_B64: ${{ vars.EVOGUARD_RELEASE_SOURCE_FINALIZER_V1_PUBLIC_KEY_B64 }}
+        run: |
+          set -euo pipefail
+          mkdir -m 0700 "$RUNNER_TEMP/g-trust"
+          printf '%s' "$RAAE_PUBLIC_KEY_B64" | base64 --decode > "$RUNNER_TEMP/g-trust/release-artifact-admission-v1.pub.pem"
+          printf '%s' "$V2_PUBLIC_KEY_B64" | base64 --decode > "$RUNNER_TEMP/g-trust/release-source-admission-v2.pub.pem"
+          printf '%s' "$FINALIZER_PUBLIC_KEY_B64" | base64 --decode > "$RUNNER_TEMP/g-trust/trusted-finalizer.pub.pem"
+          printf '%s' "$ARTIFACT_V1_PUBLIC_KEY_B64" | base64 --decode > "$RUNNER_TEMP/g-trust/artifact-admission-v1.pub.pem"
+          printf '%s' "$ARTIFACT_V2_PUBLIC_KEY_B64" | base64 --decode > "$RUNNER_TEMP/g-trust/artifact-digest-admission-v2.pub.pem"
+          printf '%s' "$SOURCE_V1_PUBLIC_KEY_B64" | base64 --decode > "$RUNNER_TEMP/g-trust/release-source-finalizer-v1.pub.pem"
+          openssl genpkey -algorithm ED25519 -out "$RUNNER_TEMP/wrong.private.pem" >/dev/null 2>&1
+          openssl pkey -in "$RUNNER_TEMP/wrong.private.pem" -pubout -out "$RUNNER_TEMP/wrong.pub.pem"
+
+      - name: Verify RAAE and retained provider evidence without a live provider call
+        env:
+          SOURCE_BOOTSTRAP_SHA256: ${{ vars.EVOGUARD_BOOTSTRAP_RUNTIME_SHA256 }}
+          SOURCE_GIT_SHA256: ${{ vars.EVOGUARD_GIT_EXECUTABLE_SHA256 }}
+          SOURCE_GH_SHA256: ${{ vars.EVOGUARD_GH_EXECUTABLE_SHA256 }}
+          SOURCE_PROVIDER_UID: ${{ vars.EVOGUARD_PROVIDER_ISOLATION_UID }}
+          SOURCE_PROVIDER_GID: ${{ vars.EVOGUARD_PROVIDER_ISOLATION_GID }}
+          OUTER_GIT_SHA256: ${{ vars.EVOGUARD_RELEASE_ARTIFACT_GIT_EXECUTABLE_SHA256 }}
+          OUTER_GH_SHA256: ${{ vars.EVOGUARD_RELEASE_ARTIFACT_GH_EXECUTABLE_SHA256 }}
+          OUTER_PROVIDER_UID: ${{ vars.EVOGUARD_RELEASE_ARTIFACT_PROVIDER_ISOLATION_UID }}
+          OUTER_PROVIDER_GID: ${{ vars.EVOGUARD_RELEASE_ARTIFACT_PROVIDER_ISOLATION_GID }}
+        run: |
+          set -euo pipefail
+          verify_raae() {
+            local bundle="$1" artifact="$2" trusted="$3" outer_git="$4" source_gh="$5" output="$6"
+            python -I "$RUNNER_TEMP/evo-guard.pyz" verify-github-release-artifact-admission \
+              "$bundle" "$artifact" \
+              --trusted-pub "$trusted" \
+              --expected-builder "$RUNNER_TEMP/g-inputs/builder.json" \
+              --expected-admitter "$RUNNER_TEMP/g-inputs/admitter.json" \
+              --expected-release-source "$RUNNER_TEMP/g-inputs/source.json" \
+              --expected-release-source-context "$RUNNER_TEMP/g-inputs/context.json" \
+              --expected-release-source-producer "$RUNNER_TEMP/g-inputs/producer.json" \
+              --expected-release-source-admitter "$RUNNER_TEMP/g-inputs/source-admitter.json" \
+              --expected-release-source-bootstrap-guard-sha "$SOURCE_BOOTSTRAP_SHA256" \
+              --expected-release-source-github-policy "$RUNNER_TEMP/g-inputs/source-github-policy.json" \
+              --expected-release-source-git-executable-sha256 "$SOURCE_GIT_SHA256" \
+              --expected-release-source-gh-executable-sha256 "$source_gh" \
+              --expected-release-source-provider-isolation-uid "$SOURCE_PROVIDER_UID" \
+              --expected-release-source-provider-isolation-gid "$SOURCE_PROVIDER_GID" \
+              --expected-git-executable-sha256 "$outer_git" \
+              --expected-gh-executable-sha256 "$OUTER_GH_SHA256" \
+              --expected-provider-isolation-uid "$OUTER_PROVIDER_UID" \
+              --expected-provider-isolation-gid "$OUTER_PROVIDER_GID" \
+              --trusted-finalizer-pub "$RUNNER_TEMP/g-trust/trusted-finalizer.pub.pem" \
+              --artifact-admission-v1-pub "$RUNNER_TEMP/g-trust/artifact-admission-v1.pub.pem" \
+              --artifact-digest-admission-v2-pub "$RUNNER_TEMP/g-trust/artifact-digest-admission-v2.pub.pem" \
+              --release-source-finalizer-v1-pub "$RUNNER_TEMP/g-trust/release-source-finalizer-v1.pub.pem" \
+              --release-source-admission-v2-pub "$RUNNER_TEMP/g-trust/release-source-admission-v2.pub.pem" \
+              > "$output"
+          }
+          verify_raae \
+            "$RUNNER_TEMP/g-inputs/release-artifact-allow.raae" \
+            "$RUNNER_TEMP/g-inputs/release-artifact.json" \
+            "$RUNNER_TEMP/g-trust/release-artifact-admission-v1.pub.pem" \
+            "$OUTER_GIT_SHA256" "$SOURCE_GH_SHA256" \
+            "$RUNNER_TEMP/raae-detached-verification.json"
+          test "$(jq -r .status "$RUNNER_TEMP/raae-detached-verification.json")" = "VERIFIED"
+          test "$(jq -r .decision "$RUNNER_TEMP/raae-detached-verification.json")" = "ALLOW"
+          test "$(jq -r .live_provider_reverification "$RUNNER_TEMP/raae-detached-verification.json")" = "false"
+
+          cp "$RUNNER_TEMP/g-inputs/release-artifact.json" "$RUNNER_TEMP/tampered-artifact.json"
+          printf 'x' >> "$RUNNER_TEMP/tampered-artifact.json"
+          cp "$RUNNER_TEMP/g-inputs/release-artifact-allow.raae" "$RUNNER_TEMP/tampered.raae"
+          python - "$RUNNER_TEMP/tampered.raae" <<'PY'
+          import pathlib, sys
+          path = pathlib.Path(sys.argv[1])
+          data = bytearray(path.read_bytes())
+          data[len(data) // 2] ^= 1
+          path.write_bytes(data)
+          PY
+          : > "$RUNNER_TEMP/raae-negative-results.txt"
+          expect_reject() {
+            local label="$1" pattern="$2"; shift 2
+            local report="$RUNNER_TEMP/rejected-$label.json" rc
+            set +e
+            verify_raae "$@" "$report"
+            rc="$?"
+            set -e
+            test "$rc" -eq 1
+            jq -e '.ok == false and .verified == false and .status == "REJECTED" and (.error | type == "string" and length > 0)' "$report" >/dev/null
+            jq -er .error "$report" | grep -Eiq -- "$pattern"
+            printf '%s=REJECTED\n' "$label" >> "$RUNNER_TEMP/raae-negative-results.txt"
+          }
+          expect_reject tampered-artifact 'external artifact|artifact/builder/tool/key' \
+            "$RUNNER_TEMP/g-inputs/release-artifact-allow.raae" "$RUNNER_TEMP/tampered-artifact.json" \
+            "$RUNNER_TEMP/g-trust/release-artifact-admission-v1.pub.pem" "$OUTER_GIT_SHA256" "$SOURCE_GH_SHA256"
+          expect_reject tampered-bundle 'archive|zip|canonical|descriptor|digest|manifest|bytes|signature' \
+            "$RUNNER_TEMP/tampered.raae" "$RUNNER_TEMP/g-inputs/release-artifact.json" \
+            "$RUNNER_TEMP/g-trust/release-artifact-admission-v1.pub.pem" "$OUTER_GIT_SHA256" "$SOURCE_GH_SHA256"
+          expect_reject wrong-raae-root 'trusted public key|key_id|signature' \
+            "$RUNNER_TEMP/g-inputs/release-artifact-allow.raae" "$RUNNER_TEMP/g-inputs/release-artifact.json" \
+            "$RUNNER_TEMP/wrong.pub.pem" "$OUTER_GIT_SHA256" "$SOURCE_GH_SHA256"
+          expect_reject wrong-outer-git-pin 'external artifact|artifact/builder/tool/key' \
+            "$RUNNER_TEMP/g-inputs/release-artifact-allow.raae" "$RUNNER_TEMP/g-inputs/release-artifact.json" \
+            "$RUNNER_TEMP/g-trust/release-artifact-admission-v1.pub.pem" "$(printf '0%.0s' {1..64})" "$SOURCE_GH_SHA256"
+          expect_reject wrong-source-gh-pin 'release-source admission does not match external' \
+            "$RUNNER_TEMP/g-inputs/release-artifact-allow.raae" "$RUNNER_TEMP/g-inputs/release-artifact.json" \
+            "$RUNNER_TEMP/g-trust/release-artifact-admission-v1.pub.pem" "$OUTER_GIT_SHA256" "$(printf '0%.0s' {1..64})"
+          test "$(wc -l < "$RUNNER_TEMP/raae-negative-results.txt")" -eq 5
+
+      - name: Preserve detached positive and negative results
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: evoguard-release-artifact-admission-v1-verified-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/raae-detached-verification.json
+            ${{ runner.temp }}/raae-negative-results.txt
+          if-no-files-found: error
+          include-hidden-files: false
+          retention-days: 30

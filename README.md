@@ -1,14 +1,15 @@
-# EvoOM Guard Release Source Admission V2 Pilot
+# EvoOM Guard Release Source + Artifact Admission Pilot
 
 This repository is a deliberately narrow live-integration pilot for EvoOM
-Guard's `EVOGUARD_RELEASE_SOURCE_ADMISSION_V2` envelope. It tests whether one
-exact, single-parent protected-main source commit can travel through a
-three-workflow A/B/C trust topology and then pass a detached D verification.
+Guard's source-to-artifact trust boundary. Round 1 exercised the
+`EVOGUARD_RELEASE_SOURCE_ADMISSION_V2` envelope across A/B/C and detached D.
+The disabled second topology adds E/F/G for the published v4.2.0
+`EVOGUARD_RELEASE_ARTIFACT_ADMISSION_V1` contract.
 
 It is **not** a release publisher, artifact gate, deployment gate, production
-service, or independent security audit. An `ALLOW` from this pilot authorizes
-source only. It does not authorize any package, image, executable, release, or
-deployment.
+service, or independent security audit. A source `ALLOW` authorizes source only;
+a later artifact `ALLOW` binds one exact data file to that source authorization.
+Neither result authorizes a package, image, release, publication, or deployment.
 
 ## Topology
 
@@ -27,22 +28,38 @@ C  EvoGuard Admit Release Source
               |
               v
 D  detached-verify job in C
-   no Environment/private key/fresh attestation-provider call; verifies the signed envelope
+   no Environment/protected signing key/fresh attestation-provider call;
+   verifies the signed envelope
    against externally supplied source, workflow, tool, UID/GID, and key roots
+
+E  EvoGuard Build Release Artifact
+   workflow_dispatch; no secret; verifies a fresh RSAE, builds one bounded
+   canonical data file, and requests one GitHub Artifact Attestation
+              |
+              v
+F  EvoGuard Admit Release Artifact
+   workflow_run(E); no-secret preflight then a separate protected Environment;
+   freshly verifies E and signs one RAAE with a sixth distinct key
+              |
+              v
+G  EvoGuard Verify Release Artifact
+   workflow_run(F); no Environment, trusted signing key, OIDC, or live provider call;
+   verifies RAAE + artifact + nested RSAE and retained provider evidence
 ```
 
-D is intentionally a second job inside C. GitHub limits chained
-`workflow_run` workflows; it is not a fourth workflow. D is detached from the
-key-bearing/provider operation, but it is not an offline job: it downloads the
-retained controls and envelope plus a hash-pinned verifier runtime and
-hash-locked dependencies.
+D is intentionally a second job inside C. E is a separate manual root, so E/F/G
+forms another three-level chain rather than extending A/B/C past GitHub's chain
+limit. D and G are detached from their key-bearing/provider operations; their
+core verification is offline over retained bytes, although the jobs still use
+Actions artifact transport and download a pinned verifier runtime and locked
+dependencies.
 
 ## Safe initial state
 
-All A/B/C entry jobs are fail-closed behind the administrative repository
-variable `EVOGUARD_RELEASE_SOURCE_V2_ENABLED == "true"`. Publish C0 with the
-variable absent or `false`. Configure and audit every external root before
-setting it to `true`.
+All A/B/C and E/F/G entry jobs are fail-closed behind separate administrative
+repository variables. Keep both `EVOGUARD_RELEASE_SOURCE_V2_ENABLED` and
+`EVOGUARD_RELEASE_ARTIFACT_ADMISSION_V1_ENABLED` absent or `false` until their
+external roots and protected Environments are audited.
 
 The first admitted target must be a later **source-only, one-parent** main
 commit. The baseline commit must already contain the judge pack, hash-locked
@@ -56,15 +73,19 @@ See:
 - [`docs/THREAT_MODEL.md`](docs/THREAT_MODEL.md) for guarantees and non-claims.
 - [`docs/NEGATIVE_MATRIX.md`](docs/NEGATIVE_MATRIX.md) for required fail-closed exercises.
 - [`docs/ROUND1_EVIDENCE.md`](docs/ROUND1_EVIDENCE.md) for the first live round, exact evidence, and unexecuted cases.
+- [`docs/RELEASE_ARTIFACT_BOOTSTRAP.md`](docs/RELEASE_ARTIFACT_BOOTSTRAP.md) for the disabled E/F/G bootstrap and live-round order.
 - [`trust/public/README.md`](trust/public/README.md) for key handling.
 
 ## Local validation
 
 ```bash
 python -m pip install pytest PyYAML
+actionlint -color
 python -m pytest -q
 ```
 
-The local tests validate YAML syntax and static workflow contracts. They do not
-claim that GitHub executed A/B/C/D or that an Environment, ruleset, variable,
-secret, artifact attestation, runner image, or provider result exists.
+CI pins actionlint v1.7.12 by its release-archive SHA-256. The local tests
+validate YAML syntax, the deterministic pilot artifact builder, and static
+workflow contracts. They do not claim that GitHub executed E/F/G or
+that its second Environment, sixth key, fresh artifact attestation, or RAAE
+result exists.

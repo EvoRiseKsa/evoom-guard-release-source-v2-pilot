@@ -1,5 +1,11 @@
 # C0, C1, and live-round bootstrap procedure
 
+This document preserves the completed source-only A/B/C/D bootstrap, including
+its historical v4.1.0 root. Do not silently rewrite that evidence to v4.2.0.
+The later disabled E/F/G artifact pilot and the fresh source round it requires
+are specified separately in
+[`RELEASE_ARTIFACT_BOOTSTRAP.md`](RELEASE_ARTIFACT_BOOTSTRAP.md).
+
 Follow the order exactly. A value observed from a workflow artifact becomes a
 trust root only after an administrator reviews and records it outside the
 candidate run.

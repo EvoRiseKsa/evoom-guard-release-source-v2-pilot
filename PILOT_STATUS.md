@@ -1,6 +1,7 @@
 # Pilot status
 
-Status: **Round 1 live source-only admission completed; pilot remains disabled**.
+Status: **Round 1 source-only admission completed; disabled RAAE scaffold
+implemented; no live artifact-admission round has started**.
 
 Implemented and exercised:
 
@@ -10,6 +11,15 @@ Implemented and exercised:
 - D: detached verification as a separate, non-Environment job inside C;
 - read-only runtime/tool/pack pin probe;
 - static workflow-contract and local behavior tests.
+
+Implemented but not yet exercised live:
+
+- E: no-secret manual builder that verifies a fresh RSAE, creates one bounded
+  canonical data artifact, and requests one exact GitHub Artifact Attestation;
+- F: no-secret `workflow_run` preflight followed by a separately protected
+  Environment that freshly verifies E and seals one `.raae` with a sixth key;
+- G: no-secret detached verification of the RAAE, artifact, nested RSAE, and
+  retained provider evidence, including five byte/root/pin negative controls.
 
 Round 1 is preserved in [`docs/ROUND1_EVIDENCE.md`](docs/ROUND1_EVIDENCE.md).
 It binds the exact source commit, parent, trees, workflow IDs/blobs, runtime,
@@ -28,10 +38,17 @@ Established for this one source-only round:
 
 Not established:
 
-- artifact, release, package, publication, or deployment authorization;
+- a distributable build, release, package, publication, or deployment
+  authorization;
 - the live matrix cases explicitly listed as unexecuted in the ledger;
 - independent external review, production readiness, SLA, or certification.
+- any live E/F/G run, RAAE `ALLOW`, artifact-publication authorization, or
+  reproducible-build result. The pilot artifact is a deterministic JSON
+  descriptor of `calculator.py`, not a compiled or packaged product.
 
 Current safe state: `EVOGUARD_RELEASE_SOURCE_V2_ENABLED=false`, the Environment
 private-key secret is absent, and the temporary `main` lock is off while all
 normal branch protections and required signatures remain enabled.
+The RAAE feature must likewise remain `false`; its Environment and private key
+must not be created until the disabled scaffold is merged and exact E/F/G
+workflow IDs/blobs and v4.2.0 runtime/tool pins are reviewed.

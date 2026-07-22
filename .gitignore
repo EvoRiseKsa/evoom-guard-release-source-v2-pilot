@@ -2,7 +2,9 @@ __pycache__/
 .pytest_cache/
 *.py[cod]
 *.rsae
+*.raae
 *.pem
 evidence/
 pin-probe.json
 /scratch/
+/dist/
