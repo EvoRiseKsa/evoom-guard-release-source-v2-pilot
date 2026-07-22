@@ -16,7 +16,8 @@ def main(argv: list[str] | None = None) -> int:
     if len(arguments) != 3 or arguments[0] != "add":
         print("usage: python -m calculator add LEFT RIGHT", file=sys.stderr)
         return 2
-    print(add(int(arguments[1]), int(arguments[2])))
+    _, left_text, right_text = arguments
+    print(add(int(left_text), int(right_text)))
     return 0
 
 
