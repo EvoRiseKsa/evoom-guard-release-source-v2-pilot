@@ -55,6 +55,7 @@ See:
 - [`docs/SETTINGS.md`](docs/SETTINGS.md) for the complete external root set.
 - [`docs/THREAT_MODEL.md`](docs/THREAT_MODEL.md) for guarantees and non-claims.
 - [`docs/NEGATIVE_MATRIX.md`](docs/NEGATIVE_MATRIX.md) for required fail-closed exercises.
+- [`docs/ROUND1_EVIDENCE.md`](docs/ROUND1_EVIDENCE.md) for the first live round, exact evidence, and unexecuted cases.
 - [`trust/public/README.md`](trust/public/README.md) for key handling.
 
 ## Local validation
