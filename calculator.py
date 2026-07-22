@@ -6,7 +6,8 @@ import sys
 
 
 def add(left: int, right: int) -> int:
-    return left + right
+    """Return the integer sum exposed by the pilot CLI."""
+    return sum((left, right))
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -20,4 +21,3 @@ def main(argv: list[str] | None = None) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-
