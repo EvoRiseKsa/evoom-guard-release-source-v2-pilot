@@ -3,8 +3,9 @@
 This repository is a deliberately narrow live-integration pilot for EvoOM
 Guard's source-to-artifact trust boundary. Round 1 exercised the
 `EVOGUARD_RELEASE_SOURCE_ADMISSION_V2` envelope across A/B/C and detached D.
-The disabled second topology adds E/F/G for the published v4.2.0
-`EVOGUARD_RELEASE_ARTIFACT_ADMISSION_V1` contract.
+Round 2 exercised E/F/G for the published v4.2.0
+`EVOGUARD_RELEASE_ARTIFACT_ADMISSION_V1` contract and preserved its exact
+evidence and limits.
 
 It is **not** a release publisher, artifact gate, deployment gate, production
 service, or independent security audit. A source `ALLOW` authorizes source only;
@@ -54,14 +55,15 @@ core verification is offline over retained bytes, although the jobs still use
 Actions artifact transport and download a pinned verifier runtime and locked
 dependencies.
 
-## Safe initial state
+## Safe off state
 
 All A/B/C and E/F/G entry jobs are fail-closed behind separate administrative
 repository variables. Keep both `EVOGUARD_RELEASE_SOURCE_V2_ENABLED` and
 `EVOGUARD_RELEASE_ARTIFACT_ADMISSION_V1_ENABLED` absent or `false` until their
-external roots and protected Environments are audited.
+external roots and protected Environments are audited. Both are `false` after
+the completed rounds, and neither Environment retains a private secret.
 
-The first admitted target must be a later **source-only, one-parent** main
+Any newly admitted target must be a **source-only, one-parent** main
 commit. The baseline commit must already contain the judge pack, hash-locked
 judge dependencies, and reviewed A/B/C workflow blobs. Do not attempt to admit
 the bootstrap commit itself.
@@ -73,7 +75,8 @@ See:
 - [`docs/THREAT_MODEL.md`](docs/THREAT_MODEL.md) for guarantees and non-claims.
 - [`docs/NEGATIVE_MATRIX.md`](docs/NEGATIVE_MATRIX.md) for required fail-closed exercises.
 - [`docs/ROUND1_EVIDENCE.md`](docs/ROUND1_EVIDENCE.md) for the first live round, exact evidence, and unexecuted cases.
-- [`docs/RELEASE_ARTIFACT_BOOTSTRAP.md`](docs/RELEASE_ARTIFACT_BOOTSTRAP.md) for the disabled E/F/G bootstrap and live-round order.
+- [`docs/ROUND2_EVIDENCE.md`](docs/ROUND2_EVIDENCE.md) for the completed E/F/G round, exact retained objects, observed failures, and non-claims.
+- [`docs/RELEASE_ARTIFACT_BOOTSTRAP.md`](docs/RELEASE_ARTIFACT_BOOTSTRAP.md) for the E/F/G bootstrap and live-round order.
 - [`trust/public/README.md`](trust/public/README.md) for key handling.
 
 ## Local validation
@@ -86,6 +89,6 @@ python -m pytest -q
 
 CI pins actionlint v1.7.12 by its release-archive SHA-256. The local tests
 validate YAML syntax, the deterministic pilot artifact builder, and static
-workflow contracts. They do not claim that GitHub executed E/F/G or
-that its second Environment, sixth key, fresh artifact attestation, or RAAE
-result exists.
+workflow contracts. They do not by themselves prove live execution. The exact
+GitHub E/F/G runs, second Environment approval, sixth key, artifact attestation,
+and RAAE result are recorded separately in `docs/ROUND2_EVIDENCE.md`.
