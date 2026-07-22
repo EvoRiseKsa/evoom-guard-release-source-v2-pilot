@@ -1,0 +1,13 @@
+# Both accounts are controlled by the same project owner. Reciprocal review is
+# a procedural GitHub control, not independent security review.
+* @MANA-awam @EvoRiseKsa
+
+/.github/ @MANA-awam @EvoRiseKsa
+/.evoguard.json @MANA-awam @EvoRiseKsa
+/LICENSE @MANA-awam @EvoRiseKsa
+/docs/ @MANA-awam @EvoRiseKsa
+/security/ @MANA-awam @EvoRiseKsa
+/tests/ @MANA-awam @EvoRiseKsa
+/tools/ @MANA-awam @EvoRiseKsa
+/trust/ @MANA-awam @EvoRiseKsa
+
