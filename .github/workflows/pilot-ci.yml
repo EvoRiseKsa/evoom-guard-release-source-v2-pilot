@@ -20,6 +20,7 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
+          cache-dependency-path: requirements-dev.lock
       - name: Install test-only dependencies
         run: >-
           python -m pip install --disable-pip-version-check --only-binary=:all:
