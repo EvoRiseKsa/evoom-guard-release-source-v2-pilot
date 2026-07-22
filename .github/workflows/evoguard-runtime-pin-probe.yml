@@ -1,0 +1,75 @@
+name: EvoGuard Runtime Pin Probe
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Require the protected default main branch before probing
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            if (context.ref !== 'refs/heads/main' || context.payload.repository.default_branch !== 'main') {
+              throw new Error('runtime pin probe must be dispatched from default main');
+            }
+            const branch = (await github.rest.repos.getBranch({ owner, repo, branch: 'main' })).data;
+            if (!branch.protected) {
+              throw new Error('runtime pin probe requires branch protection on main');
+            }
+            if (branch.commit.sha !== context.sha) {
+              throw new Error('main moved after dispatch; probe inputs are stale');
+            }
+      - name: Checkout reviewed probe and pack
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+      - name: Bind the probe code to the dispatched workflow revision
+        run: |
+          set -euo pipefail
+          test "$RUNNER_ENVIRONMENT" = "github-hosted"
+          test "$GITHUB_REF" = "refs/heads/main"
+          test "$GITHUB_SHA" = "$GITHUB_WORKFLOW_SHA"
+      - name: Set up Python used only by the probe
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.12"
+      - name: Download the externally pinned bootstrap runtime
+        env:
+          BOOTSTRAP_URL: ${{ vars.EVOGUARD_BOOTSTRAP_RUNTIME_URL }}
+          BOOTSTRAP_SHA256: ${{ vars.EVOGUARD_BOOTSTRAP_RUNTIME_SHA256 }}
+          PROVIDER_UID: ${{ vars.EVOGUARD_PROVIDER_ISOLATION_UID }}
+          PROVIDER_GID: ${{ vars.EVOGUARD_PROVIDER_ISOLATION_GID }}
+        run: |
+          set -euo pipefail
+          test -n "$BOOTSTRAP_URL"
+          [[ "$BOOTSTRAP_SHA256" =~ ^[0-9a-f]{64}$ ]]
+          curl --fail --location --proto '=https' --tlsv1.2 --output "$RUNNER_TEMP/evo-guard.pyz" "$BOOTSTRAP_URL"
+          python tools/runtime_pin_probe.py \
+            --bootstrap "$RUNNER_TEMP/evo-guard.pyz" \
+            --expected-bootstrap-sha256 "$BOOTSTRAP_SHA256" \
+            --provider-uid "$PROVIDER_UID" --provider-gid "$PROVIDER_GID" \
+            --output "$RUNNER_TEMP/runtime-pin-probe.json"
+          test "$(jq -r .provider_identity.getent_passwd_conflict "$RUNNER_TEMP/runtime-pin-probe.json")" = "false"
+          test "$(jq -r .provider_identity.getent_group_conflict "$RUNNER_TEMP/runtime-pin-probe.json")" = "false"
+          pack_entries="$(find security/release-source-pack -mindepth 1 -maxdepth 1 -printf '%f\n' | LC_ALL=C sort | paste -sd, -)"
+          test "$pack_entries" = "pack.json,test_calculator_protocol.py"
+          python -I "$RUNNER_TEMP/evo-guard.pyz" pack-doctor security/release-source-pack --json \
+            > "$RUNNER_TEMP/pack-doctor.json"
+          test "$(jq -r .ok "$RUNNER_TEMP/pack-doctor.json")" = "true"
+      - name: Upload data-only pin observations
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: evoguard-v2-runtime-pin-probe-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/runtime-pin-probe.json
+            ${{ runner.temp }}/pack-doctor.json
+          if-no-files-found: error
+          overwrite: false
+          retention-days: 7
