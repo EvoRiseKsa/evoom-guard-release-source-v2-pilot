@@ -421,9 +421,9 @@ jobs:
           test "$(jq -r .decision "$RUNNER_TEMP/raae-detached-verification.json")" = "ALLOW"
           test "$(jq -r .live_provider_reverification "$RUNNER_TEMP/raae-detached-verification.json")" = "false"
 
-          cp "/run/evoguard-raae-detached-approved/inputs/release-artifact.json" "$RUNNER_TEMP/tampered-artifact.json"
+          install -m 0600 "/run/evoguard-raae-detached-approved/inputs/release-artifact.json" "$RUNNER_TEMP/tampered-artifact.json"
           printf 'x' >> "$RUNNER_TEMP/tampered-artifact.json"
-          cp "/run/evoguard-raae-detached-approved/inputs/release-artifact-allow.raae" "$RUNNER_TEMP/tampered.raae"
+          install -m 0600 "/run/evoguard-raae-detached-approved/inputs/release-artifact-allow.raae" "$RUNNER_TEMP/tampered.raae"
           python - "$RUNNER_TEMP/tampered.raae" <<'PY'
           import pathlib, sys
           path = pathlib.Path(sys.argv[1])
