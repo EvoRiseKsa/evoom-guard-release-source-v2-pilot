@@ -157,7 +157,8 @@ jobs:
           for value in "$OUTER_PROVIDER_UID" "$OUTER_PROVIDER_GID"; do [[ "$value" =~ ^[1-9][0-9]*$ ]]; test "$value" -ne 65534; test "$value" -le 2147483647; done
           mkdir -m 0700 "$RUNNER_TEMP/g-trust"
           install_public() {
-            local name="$1" value="$2" path="$RUNNER_TEMP/g-trust/$1.pub.pem" der="$RUNNER_TEMP/g-trust/$1.pub.der" key_text digest_line digest
+            local name="$1" value="$2"
+            local path="$RUNNER_TEMP/g-trust/$name.pub.pem" der="$RUNNER_TEMP/g-trust/$name.pub.der" key_text digest_line digest
             test -n "$value" || return 1
             printf '%s' "$value" | base64 --decode > "$path" || return 1
             chmod 0600 "$path" || return 1
@@ -347,7 +348,8 @@ jobs:
           test "$(find trust -maxdepth 1 -type f -name '*.pub.pem' | wc -l)" -eq 6
           test "$(find trust -maxdepth 1 -type f -name '*.pub.der' | wc -l)" -eq 6
           assert_key_id() {
-            local field="$1" stem="$2" pem="/run/evoguard-raae-detached-approved/trust/$2.pub.pem" der="/run/evoguard-raae-detached-approved/trust/$2.pub.der" rederived="$RUNNER_TEMP/recheck-$2.pub.der" key_text digest_line digest expected
+            local field="$1" stem="$2"
+            local pem="/run/evoguard-raae-detached-approved/trust/$stem.pub.pem" der="/run/evoguard-raae-detached-approved/trust/$stem.pub.der" rederived="$RUNNER_TEMP/recheck-$stem.pub.der" key_text digest_line digest expected
             key_text="$(openssl pkey -pubin -in "$pem" -text_pub -noout)"
             [[ "$key_text" == "ED25519 Public-Key:"* ]]
             openssl pkey -pubin -in "$pem" -outform DER -out "$rederived"
