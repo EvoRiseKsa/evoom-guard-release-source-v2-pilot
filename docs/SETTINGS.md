@@ -70,6 +70,13 @@ Environment: `evoguard-release-artifact-v1`
 
 The F job applies the same root-owned `0600`/provider-unreadable pattern in a
 separate Environment. The E and G jobs never request either Environment.
+F's no-secret preflight records the outer runtime URL/SHA, Git/`gh` hashes,
+provider UID/GID, and DER-SPKI IDs of all six public roots in
+`f-control-manifest.json`. Protected F rejects any setting drift before a step
+references the private key, verifies every root is Ed25519, and freezes the
+accepted files below a root-owned `/run` parent behind a checked SHA-256
+inventory; detached G
+rechecks the same snapshot and inventory.
 
 ## Values that must never be workflow inputs
 

@@ -100,9 +100,14 @@ with the old public variable.
    ID and attempt.
 4. Require E to verify the RSAE, build one deterministic JSON data file without
    importing `calculator.py`, and produce one GitHub Artifact Attestation subject.
-5. Inspect F's no-secret controls: E/F IDs, paths, raw-Git blobs, run/attempt,
-   target SHA, artifact/RSAE digests, outer tool pins, provider UID/GID, and six
-   distinct public-key IDs.
+5. Inspect `f-control-manifest.json` in F's no-secret controls: E/F IDs, paths,
+   raw-Git blobs, run/attempt, target SHA, artifact/RSAE digests, outer runtime
+   URL/SHA, Git/`gh` pins, provider UID/GID, and six distinct public-key IDs.
+   Protected F must reject any difference between that reviewed snapshot and
+   the live repository variables, require six parseable Ed25519 roots, freeze
+   the accepted controls beneath a root-owned `/run` parent with a checked hash
+   inventory, and recheck that inventory immediately before the private key is
+   referenced.
 6. Approve F. Require fresh provider verification and `SEALED/ALLOW`.
 7. Require G `VERIFIED/ALLOW`, `live_provider_reverification=false`, and all five
    built-in detached negative controls to report `REJECTED`.
