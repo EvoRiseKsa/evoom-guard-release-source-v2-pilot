@@ -7,7 +7,8 @@ import sys
 
 def add(left: int, right: int) -> int:
     """Return the integer sum exposed by the pilot CLI."""
-    return sum((left, right))
+    total = left + right
+    return total
 
 
 def main(argv: list[str] | None = None) -> int:
