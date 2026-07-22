@@ -21,6 +21,20 @@ jobs:
           python-version: "3.12"
           cache: pip
           cache-dependency-path: requirements-dev.lock
+      - name: Install the exact actionlint workflow validator
+        env:
+          ACTIONLINT_URL: https://github.com/rhysd/actionlint/releases/download/v1.7.12/actionlint_1.7.12_linux_amd64.tar.gz
+          ACTIONLINT_SHA256: 8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8
+        run: |
+          set -euo pipefail
+          curl --fail --location --proto '=https' --tlsv1.2 \
+            --output "$RUNNER_TEMP/actionlint.tar.gz" "$ACTIONLINT_URL"
+          printf '%s  %s\n' "$ACTIONLINT_SHA256" "$RUNNER_TEMP/actionlint.tar.gz" | sha256sum --check
+          tar -xzf "$RUNNER_TEMP/actionlint.tar.gz" -C "$RUNNER_TEMP" actionlint
+          test "$(sha256sum "$RUNNER_TEMP/actionlint.tar.gz" | cut -d' ' -f1)" = "$ACTIONLINT_SHA256"
+      - name: Validate GitHub Actions semantics
+        run: |
+          "$RUNNER_TEMP/actionlint" -color
       - name: Install test-only dependencies
         run: >-
           python -m pip install --disable-pip-version-check --only-binary=:all:

@@ -12,6 +12,9 @@ WORKFLOWS = ROOT / ".github" / "workflows"
 A = WORKFLOWS / "evoguard-release-source-reverify.yml"
 B = WORKFLOWS / "evoguard-produce-release-source-receipt.yml"
 C = WORKFLOWS / "evoguard-admit-release-source.yml"
+E = WORKFLOWS / "evoguard-build-release-artifact.yml"
+F = WORKFLOWS / "evoguard-admit-release-artifact.yml"
+G = WORKFLOWS / "evoguard-verify-release-artifact.yml"
 PROBE = WORKFLOWS / "evoguard-runtime-pin-probe.yml"
 CI = WORKFLOWS / "pilot-ci.yml"
 
@@ -184,13 +187,19 @@ def test_d_is_a_non_privileged_second_job_inside_c() -> None:
     assert "offline" not in detached.lower()
 
 
-def test_chain_depth_is_three_and_no_fourth_workflow_run_exists() -> None:
+def test_two_chains_each_have_one_manual_root_and_two_workflow_run_levels() -> None:
     workflow_runs = [
         path.name
         for path in WORKFLOWS.glob("*.yml")
         if "workflow_run:" in text(path)
     ]
-    assert sorted(workflow_runs) == sorted([B.name, C.name])
+    assert sorted(workflow_runs) == sorted([B.name, C.name, F.name, G.name])
+    assert "workflow_dispatch:" in text(A)
+    assert "workflow_dispatch:" in text(E)
+    assert 'workflows: ["EvoGuard Release Source Reverify"]' in text(B)
+    assert 'workflows: ["EvoGuard Produce Release Source Receipt"]' in text(C)
+    assert 'workflows: ["EvoGuard Build Release Artifact"]' in text(F)
+    assert 'workflows: ["EvoGuard Admit Release Artifact"]' in text(G)
     assert "detached-verify" in text(C)
 
 
@@ -220,6 +229,10 @@ def test_runtime_probe_is_read_only_and_reports_pack_identity() -> None:
     assert "pack-doctor.json" in workflow
     assert "EVOGUARD_PROVIDER_ISOLATION_UID" in workflow
     assert "EVOGUARD_PROVIDER_ISOLATION_GID" in workflow
+    assert "EVOGUARD_RELEASE_ARTIFACT_RUNTIME_SHA256" in workflow
+    assert "EVOGUARD_RELEASE_ARTIFACT_PROVIDER_ISOLATION_UID" in workflow
+    assert "EVOGUARD_RELEASE_ARTIFACT_PROVIDER_ISOLATION_GID" in workflow
+    assert "release_artifact_provider_identity" in workflow
     assert "getent_passwd_conflict" in workflow
     assert "getent_group_conflict" in workflow
     assert "github.rest.repos.getBranch" in workflow
@@ -229,6 +242,14 @@ def test_runtime_probe_is_read_only_and_reports_pack_identity() -> None:
     assert 'test "$RUNNER_ENVIRONMENT" = "github-hosted"' in workflow
     assert 'test "$GITHUB_SHA" = "$GITHUB_WORKFLOW_SHA"' in workflow
     assert workflow.index("Bind the probe code") < workflow.index("pack-doctor")
+
+
+def test_pilot_ci_runs_a_hash_pinned_semantic_workflow_validator() -> None:
+    workflow = text(CI)
+    assert "actionlint_1.7.12_linux_amd64.tar.gz" in workflow
+    assert "8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8" in workflow
+    assert '"$RUNNER_TEMP/actionlint" -color' in workflow
+    assert "sha256sum --check" in workflow
 
 
 def test_ci_never_enables_or_executes_the_admission_chain() -> None:

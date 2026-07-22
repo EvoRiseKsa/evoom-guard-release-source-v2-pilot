@@ -31,3 +31,35 @@ attempts, logs, and artifacts. Restore and re-audit settings after each test.
 
 A negative test is successful only when it fails at the expected boundary and
 does not expose a private key, publish bytes, or produce a usable `ALLOW`.
+
+## Release Artifact Admission V1 additions
+
+These cases apply only after the disabled E/F/G scaffold is merged and the
+separate roots in `RELEASE_ARTIFACT_BOOTSTRAP.md` are reviewed.
+
+| Case | Mutation | Required result |
+| --- | --- | --- |
+| Artifact feature disabled | Keep the artifact enable variable absent/false | E/F/G protected work does not run; no artifact Environment or key use. |
+| Wrong C run/attempt | Dispatch E with a different run or attempt | E rejects before checkout, build, or attestation. |
+| Moved main before E | Advance `main` after C | E rejects the C/current-main binding. |
+| Wrong E ID/path | Change E ID or trigger a name-collision workflow | F rejects before Environment access. |
+| Moved main between E/F | Advance `main` after E | F rejects before Environment access. |
+| Wrong E/F/G blob | Change any configured raw-Git blob | F or G rejects before a usable detached `ALLOW`. |
+| Open E inventory | Add, remove, rename, symlink, or oversize an E output | F preflight rejects the closed snapshot. |
+| Altered builder controls | Change the artifact/RSAE digest or source-run binding | F rejects before Environment access. |
+| Wrong outer Git/`gh` pin | Change either outer executable SHA-256 | F rejects before the provider/key operation. |
+| Outer UID/GID root or `65534` | Configure a forbidden identity | F rejects before signing. |
+| Reused sixth key | Reuse any predecessor public key | F rejects the six-domain separation check. |
+| Wrong sixth public/private pair | Replace one side | F cannot produce a self-verifying RAAE. |
+| Failed E attestation verification | Remove permission/token or mismatch the E provenance | F rejects before RAAE signing. |
+| Tampered artifact | Append or alter one artifact byte | G rejects. |
+| Tampered `.raae` | Alter one retained envelope byte | G rejects. |
+| Wrong sixth public root | Give G a different Ed25519 public key | G rejects the signature. |
+| Wrong detached outer pin | Change the expected outer Git or `gh` digest | G rejects the signed runtime binding. |
+| Wrong detached nested pin | Change a required RSAE runtime/tool/provider root | G rejects the nested source binding. |
+| Moved main before G | Advance `main` after F | G rejects the F/current-main binding. |
+
+The five built-in G controls cover tampered artifact, tampered envelope, wrong
+sixth root, wrong outer Git pin, and wrong nested source `gh` pin. All other
+rows remain live-round obligations and must not be described as executed until
+their run evidence is preserved.

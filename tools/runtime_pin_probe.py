@@ -68,6 +68,10 @@ def build_report(
     *,
     provider_uid: int | None = None,
     provider_gid: int | None = None,
+    release_artifact_bootstrap: Path | None = None,
+    expected_release_artifact_bootstrap_sha256: str | None = None,
+    release_artifact_provider_uid: int | None = None,
+    release_artifact_provider_gid: int | None = None,
 ) -> dict[str, object]:
     expected = expected_bootstrap_sha256.strip().lower()
     if len(expected) != 64 or any(character not in "0123456789abcdef" for character in expected):
@@ -76,7 +80,7 @@ def build_report(
     if actual != expected:
         raise SystemExit("downloaded bootstrap digest does not match the external pin")
     report: dict[str, object] = {
-        "format": "EVOGUARD_V2_RUNTIME_PIN_PROBE_V1",
+        "format": "EVOGUARD_RUNTIME_PIN_PROBE_V2",
         "runner": {
             "environment": os.environ.get("RUNNER_ENVIRONMENT", "local"),
             "image_os": os.environ.get("ImageOS", ""),
@@ -92,6 +96,34 @@ def build_report(
         raise SystemExit("provider UID and GID must be supplied together")
     if provider_uid is not None and provider_gid is not None:
         report["provider_identity"] = provider_identity(provider_uid, provider_gid)
+    if (release_artifact_bootstrap is None) != (
+        expected_release_artifact_bootstrap_sha256 is None
+    ):
+        raise SystemExit("release-artifact bootstrap path and digest must be supplied together")
+    if release_artifact_bootstrap is not None:
+        expected_outer = str(expected_release_artifact_bootstrap_sha256).strip().lower()
+        if len(expected_outer) != 64 or any(
+            character not in "0123456789abcdef" for character in expected_outer
+        ):
+            raise SystemExit("expected release-artifact bootstrap digest must be SHA-256")
+        actual_outer = sha256(release_artifact_bootstrap.resolve(strict=True))
+        if actual_outer != expected_outer:
+            raise SystemExit("release-artifact bootstrap digest does not match its pin")
+        report["release_artifact_bootstrap"] = {
+            "path": str(release_artifact_bootstrap.resolve()),
+            "sha256": actual_outer,
+        }
+    if (release_artifact_provider_uid is None) != (
+        release_artifact_provider_gid is None
+    ):
+        raise SystemExit("release-artifact provider UID and GID must be supplied together")
+    if (
+        release_artifact_provider_uid is not None
+        and release_artifact_provider_gid is not None
+    ):
+        report["release_artifact_provider_identity"] = provider_identity(
+            release_artifact_provider_uid, release_artifact_provider_gid
+        )
     return report
 
 
@@ -101,6 +133,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--expected-bootstrap-sha256", required=True)
     parser.add_argument("--provider-uid", required=True, type=int)
     parser.add_argument("--provider-gid", required=True, type=int)
+    parser.add_argument("--release-artifact-bootstrap", required=True, type=Path)
+    parser.add_argument(
+        "--expected-release-artifact-bootstrap-sha256", required=True
+    )
+    parser.add_argument("--release-artifact-provider-uid", required=True, type=int)
+    parser.add_argument("--release-artifact-provider-gid", required=True, type=int)
     parser.add_argument("--output", required=True, type=Path)
     args = parser.parse_args(argv)
     report = build_report(
@@ -108,6 +146,12 @@ def main(argv: list[str] | None = None) -> int:
         args.expected_bootstrap_sha256,
         provider_uid=args.provider_uid,
         provider_gid=args.provider_gid,
+        release_artifact_bootstrap=args.release_artifact_bootstrap,
+        expected_release_artifact_bootstrap_sha256=(
+            args.expected_release_artifact_bootstrap_sha256
+        ),
+        release_artifact_provider_uid=args.release_artifact_provider_uid,
+        release_artifact_provider_gid=args.release_artifact_provider_gid,
     )
     args.output.write_text(
         json.dumps(report, sort_keys=True, separators=(",", ":")) + "\n",

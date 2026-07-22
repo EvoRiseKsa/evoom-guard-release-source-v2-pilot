@@ -1,0 +1,277 @@
+name: EvoGuard Build Release Artifact
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_admission_run_id:
+        description: Exact successful protected C run that produced the source RSAE
+        required: true
+        type: string
+      source_admission_run_attempt:
+        description: Exact C run attempt
+        required: true
+        default: "1"
+        type: string
+
+permissions: {}
+
+concurrency:
+  group: evoguard-release-artifact-build-${{ github.run_id }}-${{ github.run_attempt }}
+  cancel-in-progress: false
+
+jobs:
+  preflight:
+    if: github.ref == 'refs/heads/main' && vars.EVOGUARD_RELEASE_ARTIFACT_ADMISSION_V1_ENABLED == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      actions: read
+      contents: read
+    outputs:
+      source_admission_run_id: ${{ steps.bind.outputs.source_admission_run_id }}
+      source_admission_run_attempt: ${{ steps.bind.outputs.source_admission_run_attempt }}
+      target_sha: ${{ steps.bind.outputs.target_sha }}
+    steps:
+      - name: Validate protected C and bind current protected main
+        id: bind
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          SOURCE_RUN_ID: ${{ inputs.source_admission_run_id }}
+          SOURCE_RUN_ATTEMPT: ${{ inputs.source_admission_run_attempt }}
+          EXPECTED_C_WORKFLOW_ID: ${{ vars.EVOGUARD_RELEASE_SOURCE_ADMIT_WORKFLOW_ID }}
+        with:
+          script: |
+            const numeric = /^[1-9][0-9]*$/;
+            for (const name of ['SOURCE_RUN_ID', 'SOURCE_RUN_ATTEMPT', 'EXPECTED_C_WORKFLOW_ID']) {
+              if (!numeric.test(process.env[name] || '')) core.setFailed(`invalid ${name}`);
+            }
+            if (process.env.GITHUB_SHA !== process.env.GITHUB_WORKFLOW_SHA) {
+              core.setFailed('builder workflow SHA is not the protected source SHA');
+            }
+            const runId = Number(process.env.SOURCE_RUN_ID);
+            const expectedAttempt = Number(process.env.SOURCE_RUN_ATTEMPT);
+            const expectedWorkflow = Number(process.env.EXPECTED_C_WORKFLOW_ID);
+            const {data: run} = await github.rest.actions.getWorkflowRun({
+              owner: context.repo.owner, repo: context.repo.repo, run_id: runId,
+            });
+            if (run.status !== 'completed' || run.conclusion !== 'success' ||
+                run.event !== 'workflow_run' || run.run_attempt !== expectedAttempt ||
+                run.workflow_id !== expectedWorkflow || run.head_branch !== 'main' ||
+                run.head_sha !== context.sha || run.head_repository?.id !== context.payload.repository.id ||
+                run.head_repository?.full_name !== context.payload.repository.full_name) {
+              core.setFailed('source admission run does not match protected C/current main');
+            }
+            const {data: workflow} = await github.rest.actions.getWorkflow({
+              owner: context.repo.owner, repo: context.repo.repo, workflow_id: run.workflow_id,
+            });
+            if (workflow.path !== '.github/workflows/evoguard-admit-release-source.yml') {
+              core.setFailed('source admission workflow path is not protected C');
+            }
+            const {data: branch} = await github.rest.repos.getBranch({
+              owner: context.repo.owner, repo: context.repo.repo, branch: 'main',
+            });
+            if (!branch.protected || branch.commit.sha !== context.sha) {
+              core.setFailed('main is not protected or moved before E');
+            }
+            core.setOutput('source_admission_run_id', String(run.id));
+            core.setOutput('source_admission_run_attempt', String(run.run_attempt));
+            core.setOutput('target_sha', run.head_sha);
+
+  build:
+    needs: preflight
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      actions: read
+      attestations: write
+      contents: read
+      id-token: write
+    steps:
+      - name: Set up the no-secret builder Python runtime
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: "3.12"
+
+      - name: Download the exact protected C source admission
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: evoguard-release-source-admission-v2-${{ needs.preflight.outputs.source_admission_run_attempt }}
+          path: ${{ runner.temp }}/source-admission-download
+          run-id: ${{ needs.preflight.outputs.source_admission_run_id }}
+          github-token: ${{ github.token }}
+
+      - name: Download the exact protected C external controls
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: evoguard-release-source-v2-controls-${{ needs.preflight.outputs.source_admission_run_attempt }}
+          path: ${{ runner.temp }}/source-controls-download
+          run-id: ${{ needs.preflight.outputs.source_admission_run_id }}
+          github-token: ${{ github.token }}
+
+      - name: Snapshot only bounded regular source-admission inputs
+        env:
+          TARGET_SHA: ${{ needs.preflight.outputs.target_sha }}
+        run: |
+          set -euo pipefail
+          test "$RUNNER_ENVIRONMENT" = "github-hosted"
+          test "$GITHUB_SHA" = "$TARGET_SHA"
+          test "$GITHUB_WORKFLOW_SHA" = "$TARGET_SHA"
+          python - "$RUNNER_TEMP/source-admission-download" "$RUNNER_TEMP/source-controls-download" "$RUNNER_TEMP/e-inputs" <<'PY'
+          import os, pathlib, shutil, stat, sys
+          admission, controls, destination = map(pathlib.Path, sys.argv[1:])
+          destination.mkdir(mode=0o700)
+          wanted = {
+              admission / 'source-allow.rsae': ('source-allow.rsae', 64 * 1024 * 1024),
+              controls / 'source.json': ('source.json', 1024 * 1024),
+              controls / 'context.json': ('context.json', 1024 * 1024),
+              controls / 'producer.json': ('producer.json', 1024 * 1024),
+              controls / 'admitter.json': ('source-admitter.json', 1024 * 1024),
+              controls / 'github-policy.json': ('source-github-policy.json', 1024 * 1024),
+              controls / 'signing-requirements.lock': ('signing-requirements.lock', 1024 * 1024),
+          }
+          for source, (name, limit) in wanted.items():
+              before = source.lstat()
+              if stat.S_ISLNK(before.st_mode) or not stat.S_ISREG(before.st_mode) or before.st_size > limit:
+                  raise SystemExit(f'unsafe source-admission input: {source}')
+              flags = os.O_RDONLY | getattr(os, 'O_NOFOLLOW', 0)
+              descriptor = os.open(source, flags)
+              try:
+                  opened = os.fstat(descriptor)
+                  if (opened.st_dev, opened.st_ino, opened.st_size) != (before.st_dev, before.st_ino, before.st_size):
+                      raise SystemExit(f'source-admission input changed: {source}')
+                  with os.fdopen(descriptor, 'rb', closefd=False) as stream, (destination / name).open('xb') as output:
+                      shutil.copyfileobj(stream, output, 64 * 1024)
+              finally:
+                  os.close(descriptor)
+          PY
+          test "$(jq -r .target_commit_sha "$RUNNER_TEMP/e-inputs/source.json")" = "$TARGET_SHA"
+          test "$(jq -r .workflow_commit_sha "$RUNNER_TEMP/e-inputs/source-admitter.json")" = "$TARGET_SHA"
+
+      - name: Install hash-locked Ed25519 verification dependencies
+        run: >-
+          python -m pip install --disable-pip-version-check --only-binary=:all:
+          --require-hashes -r "$RUNNER_TEMP/e-inputs/signing-requirements.lock"
+
+      - name: Download and pin the published v4.2 RAAE runtime
+        env:
+          RUNTIME_URL: ${{ vars.EVOGUARD_RELEASE_ARTIFACT_RUNTIME_URL }}
+          RUNTIME_SHA256: ${{ vars.EVOGUARD_RELEASE_ARTIFACT_RUNTIME_SHA256 }}
+        run: |
+          set -euo pipefail
+          test -n "$RUNTIME_URL"
+          [[ "$RUNTIME_SHA256" =~ ^[0-9a-f]{64}$ ]]
+          curl --fail --location --proto '=https' --tlsv1.2 --output "$RUNNER_TEMP/evo-guard.pyz" "$RUNTIME_URL"
+          printf '%s  %s\n' "$RUNTIME_SHA256" "$RUNNER_TEMP/evo-guard.pyz" | sha256sum --check
+          test "$(python -I "$RUNNER_TEMP/evo-guard.pyz" version)" = "evo-guard 4.2.0"
+
+      - name: Decode external predecessor trust roots
+        env:
+          V2_PUBLIC_KEY_B64: ${{ vars.EVOGUARD_RELEASE_SOURCE_ADMISSION_V2_PUBLIC_KEY_B64 }}
+          FINALIZER_PUBLIC_KEY_B64: ${{ vars.EVOGUARD_TRUSTED_FINALIZER_PUBLIC_KEY_B64 }}
+          ARTIFACT_V1_PUBLIC_KEY_B64: ${{ vars.EVOGUARD_ARTIFACT_ADMISSION_V1_PUBLIC_KEY_B64 }}
+          ARTIFACT_V2_PUBLIC_KEY_B64: ${{ vars.EVOGUARD_ARTIFACT_DIGEST_ADMISSION_V2_PUBLIC_KEY_B64 }}
+          SOURCE_V1_PUBLIC_KEY_B64: ${{ vars.EVOGUARD_RELEASE_SOURCE_FINALIZER_V1_PUBLIC_KEY_B64 }}
+        run: |
+          set -euo pipefail
+          mkdir -m 0700 "$RUNNER_TEMP/e-trust"
+          printf '%s' "$V2_PUBLIC_KEY_B64" | base64 --decode > "$RUNNER_TEMP/e-trust/release-source-admission-v2.pub.pem"
+          printf '%s' "$FINALIZER_PUBLIC_KEY_B64" | base64 --decode > "$RUNNER_TEMP/e-trust/trusted-finalizer.pub.pem"
+          printf '%s' "$ARTIFACT_V1_PUBLIC_KEY_B64" | base64 --decode > "$RUNNER_TEMP/e-trust/artifact-admission-v1.pub.pem"
+          printf '%s' "$ARTIFACT_V2_PUBLIC_KEY_B64" | base64 --decode > "$RUNNER_TEMP/e-trust/artifact-digest-admission-v2.pub.pem"
+          printf '%s' "$SOURCE_V1_PUBLIC_KEY_B64" | base64 --decode > "$RUNNER_TEMP/e-trust/release-source-finalizer-v1.pub.pem"
+
+      - name: Verify the exact RSAE before building
+        env:
+          SOURCE_BOOTSTRAP_SHA256: ${{ vars.EVOGUARD_BOOTSTRAP_RUNTIME_SHA256 }}
+          SOURCE_GIT_SHA256: ${{ vars.EVOGUARD_GIT_EXECUTABLE_SHA256 }}
+          SOURCE_GH_SHA256: ${{ vars.EVOGUARD_GH_EXECUTABLE_SHA256 }}
+          SOURCE_PROVIDER_UID: ${{ vars.EVOGUARD_PROVIDER_ISOLATION_UID }}
+          SOURCE_PROVIDER_GID: ${{ vars.EVOGUARD_PROVIDER_ISOLATION_GID }}
+        run: |
+          set -euo pipefail
+          python -I "$RUNNER_TEMP/evo-guard.pyz" verify-release-source-admission \
+            "$RUNNER_TEMP/e-inputs/source-allow.rsae" \
+            --trusted-pub "$RUNNER_TEMP/e-trust/release-source-admission-v2.pub.pem" \
+            --expected-source "$RUNNER_TEMP/e-inputs/source.json" \
+            --expected-context "$RUNNER_TEMP/e-inputs/context.json" \
+            --expected-producer "$RUNNER_TEMP/e-inputs/producer.json" \
+            --expected-admitter "$RUNNER_TEMP/e-inputs/source-admitter.json" \
+            --expected-bootstrap-guard-sha "$SOURCE_BOOTSTRAP_SHA256" \
+            --expected-github-policy "$RUNNER_TEMP/e-inputs/source-github-policy.json" \
+            --expected-git-executable-sha256 "$SOURCE_GIT_SHA256" \
+            --expected-gh-executable-sha256 "$SOURCE_GH_SHA256" \
+            --expected-provider-isolation-uid "$SOURCE_PROVIDER_UID" \
+            --expected-provider-isolation-gid "$SOURCE_PROVIDER_GID" \
+            --trusted-finalizer-pub "$RUNNER_TEMP/e-trust/trusted-finalizer.pub.pem" \
+            --artifact-admission-v1-pub "$RUNNER_TEMP/e-trust/artifact-admission-v1.pub.pem" \
+            --artifact-digest-admission-v2-pub "$RUNNER_TEMP/e-trust/artifact-digest-admission-v2.pub.pem" \
+            --release-source-finalizer-v1-pub "$RUNNER_TEMP/e-trust/release-source-finalizer-v1.pub.pem" \
+            > "$RUNNER_TEMP/source-verification.json"
+          test "$(jq -r .status "$RUNNER_TEMP/source-verification.json")" = "VERIFIED"
+          test "$(jq -r .decision "$RUNNER_TEMP/source-verification.json")" = "ALLOW"
+
+      - name: Checkout the exact admitted protected-main source
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ needs.preflight.outputs.target_sha }}
+          path: admitted-source
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Build one deterministic data-only artifact
+        env:
+          TARGET_SHA: ${{ needs.preflight.outputs.target_sha }}
+          SOURCE_RUN_ID: ${{ needs.preflight.outputs.source_admission_run_id }}
+          SOURCE_RUN_ATTEMPT: ${{ needs.preflight.outputs.source_admission_run_attempt }}
+        run: |
+          set -euo pipefail
+          test "$(git -C admitted-source rev-parse HEAD)" = "$TARGET_SHA"
+          python -I admitted-source/tools/build_release_artifact.py \
+            --input admitted-source/calculator.py \
+            --source-root admitted-source \
+            --output "$RUNNER_TEMP/release-artifact.json" \
+            --repository "$GITHUB_REPOSITORY" \
+            --source-commit-sha "$TARGET_SHA"
+          python - "$RUNNER_TEMP/e-inputs/source-allow.rsae" "$RUNNER_TEMP/release-artifact.json" "$RUNNER_TEMP/builder-controls.json" <<'PY'
+          import hashlib, json, os, pathlib, sys
+          rsae, artifact, output = map(pathlib.Path, sys.argv[1:])
+          def descriptor(path):
+              data = path.read_bytes()
+              return {'sha256': hashlib.sha256(data).hexdigest(), 'size': len(data)}
+          payload = {
+              'format': 'EVOGUARD_RAAE_PILOT_BUILDER_CONTROLS_V1',
+              'artifact': descriptor(artifact),
+              'release_source_admission': descriptor(rsae),
+              'repository': os.environ['GITHUB_REPOSITORY'],
+              'source_admission_run_attempt': int(os.environ['SOURCE_RUN_ATTEMPT']),
+              'source_admission_run_id': os.environ['SOURCE_RUN_ID'],
+              'target_sha': os.environ['TARGET_SHA'],
+          }
+          output.write_text(json.dumps(payload, sort_keys=True, separators=(',', ':')) + '\n', encoding='utf-8', newline='\n')
+          PY
+
+      - name: Generate GitHub provenance for the one exact artifact
+        uses: actions/attest@f7c74d28b9d84cb8768d0b8ca14a4bac6ef463e6 # v4.2.0
+        with:
+          subject-path: ${{ runner.temp }}/release-artifact.json
+
+      - name: Preserve the closed E output set as data
+        run: |
+          set -euo pipefail
+          mkdir -m 0700 "$RUNNER_TEMP/e-output"
+          cp "$RUNNER_TEMP/release-artifact.json" "$RUNNER_TEMP/builder-controls.json" "$RUNNER_TEMP/e-output/"
+          cp "$RUNNER_TEMP/e-inputs/source-allow.rsae" "$RUNNER_TEMP/e-output/"
+          cp "$RUNNER_TEMP/e-inputs/source.json" "$RUNNER_TEMP/e-inputs/context.json" \
+            "$RUNNER_TEMP/e-inputs/producer.json" "$RUNNER_TEMP/e-inputs/source-admitter.json" \
+            "$RUNNER_TEMP/e-inputs/source-github-policy.json" \
+            "$RUNNER_TEMP/e-inputs/signing-requirements.lock" "$RUNNER_TEMP/e-output/"
+          test "$(find "$RUNNER_TEMP/e-output" -maxdepth 1 -type f | wc -l)" -eq 9
+
+      - name: Upload the builder artifact and exact source expectations
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: evoguard-release-artifact-builder-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/e-output
+          if-no-files-found: error
+          include-hidden-files: false
+          retention-days: 30

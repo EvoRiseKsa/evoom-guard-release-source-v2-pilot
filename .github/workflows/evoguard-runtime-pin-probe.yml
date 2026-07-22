@@ -40,27 +40,39 @@ jobs:
         uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: "3.12"
-      - name: Download the externally pinned bootstrap runtime
+      - name: Download and compare the independently pinned source and artifact runtimes
         env:
-          BOOTSTRAP_URL: ${{ vars.EVOGUARD_BOOTSTRAP_RUNTIME_URL }}
-          BOOTSTRAP_SHA256: ${{ vars.EVOGUARD_BOOTSTRAP_RUNTIME_SHA256 }}
-          PROVIDER_UID: ${{ vars.EVOGUARD_PROVIDER_ISOLATION_UID }}
-          PROVIDER_GID: ${{ vars.EVOGUARD_PROVIDER_ISOLATION_GID }}
+          SOURCE_BOOTSTRAP_URL: ${{ vars.EVOGUARD_BOOTSTRAP_RUNTIME_URL }}
+          SOURCE_BOOTSTRAP_SHA256: ${{ vars.EVOGUARD_BOOTSTRAP_RUNTIME_SHA256 }}
+          SOURCE_PROVIDER_UID: ${{ vars.EVOGUARD_PROVIDER_ISOLATION_UID }}
+          SOURCE_PROVIDER_GID: ${{ vars.EVOGUARD_PROVIDER_ISOLATION_GID }}
+          ARTIFACT_BOOTSTRAP_URL: ${{ vars.EVOGUARD_RELEASE_ARTIFACT_RUNTIME_URL }}
+          ARTIFACT_BOOTSTRAP_SHA256: ${{ vars.EVOGUARD_RELEASE_ARTIFACT_RUNTIME_SHA256 }}
+          ARTIFACT_PROVIDER_UID: ${{ vars.EVOGUARD_RELEASE_ARTIFACT_PROVIDER_ISOLATION_UID }}
+          ARTIFACT_PROVIDER_GID: ${{ vars.EVOGUARD_RELEASE_ARTIFACT_PROVIDER_ISOLATION_GID }}
         run: |
           set -euo pipefail
-          test -n "$BOOTSTRAP_URL"
-          [[ "$BOOTSTRAP_SHA256" =~ ^[0-9a-f]{64}$ ]]
-          curl --fail --location --proto '=https' --tlsv1.2 --output "$RUNNER_TEMP/evo-guard.pyz" "$BOOTSTRAP_URL"
+          test -n "$SOURCE_BOOTSTRAP_URL" -a -n "$ARTIFACT_BOOTSTRAP_URL"
+          [[ "$SOURCE_BOOTSTRAP_SHA256" =~ ^[0-9a-f]{64}$ ]]
+          [[ "$ARTIFACT_BOOTSTRAP_SHA256" =~ ^[0-9a-f]{64}$ ]]
+          curl --fail --location --proto '=https' --tlsv1.2 --output "$RUNNER_TEMP/source-evo-guard.pyz" "$SOURCE_BOOTSTRAP_URL"
+          curl --fail --location --proto '=https' --tlsv1.2 --output "$RUNNER_TEMP/artifact-evo-guard.pyz" "$ARTIFACT_BOOTSTRAP_URL"
           python tools/runtime_pin_probe.py \
-            --bootstrap "$RUNNER_TEMP/evo-guard.pyz" \
-            --expected-bootstrap-sha256 "$BOOTSTRAP_SHA256" \
-            --provider-uid "$PROVIDER_UID" --provider-gid "$PROVIDER_GID" \
+            --bootstrap "$RUNNER_TEMP/source-evo-guard.pyz" \
+            --expected-bootstrap-sha256 "$SOURCE_BOOTSTRAP_SHA256" \
+            --provider-uid "$SOURCE_PROVIDER_UID" --provider-gid "$SOURCE_PROVIDER_GID" \
+            --release-artifact-bootstrap "$RUNNER_TEMP/artifact-evo-guard.pyz" \
+            --expected-release-artifact-bootstrap-sha256 "$ARTIFACT_BOOTSTRAP_SHA256" \
+            --release-artifact-provider-uid "$ARTIFACT_PROVIDER_UID" \
+            --release-artifact-provider-gid "$ARTIFACT_PROVIDER_GID" \
             --output "$RUNNER_TEMP/runtime-pin-probe.json"
           test "$(jq -r .provider_identity.getent_passwd_conflict "$RUNNER_TEMP/runtime-pin-probe.json")" = "false"
           test "$(jq -r .provider_identity.getent_group_conflict "$RUNNER_TEMP/runtime-pin-probe.json")" = "false"
+          test "$(jq -r .release_artifact_provider_identity.getent_passwd_conflict "$RUNNER_TEMP/runtime-pin-probe.json")" = "false"
+          test "$(jq -r .release_artifact_provider_identity.getent_group_conflict "$RUNNER_TEMP/runtime-pin-probe.json")" = "false"
           pack_entries="$(find security/release-source-pack -mindepth 1 -maxdepth 1 -printf '%f\n' | LC_ALL=C sort | paste -sd, -)"
           test "$pack_entries" = "pack.json,test_calculator_protocol.py"
-          python -I "$RUNNER_TEMP/evo-guard.pyz" pack-doctor security/release-source-pack --json \
+          python -I "$RUNNER_TEMP/source-evo-guard.pyz" pack-doctor security/release-source-pack --json \
             > "$RUNNER_TEMP/pack-doctor.json"
           test "$(jq -r .ok "$RUNNER_TEMP/pack-doctor.json")" = "true"
       - name: Upload data-only pin observations
