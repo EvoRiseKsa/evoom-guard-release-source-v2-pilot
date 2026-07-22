@@ -180,6 +180,14 @@ def test_g_is_no_secret_detached_verification_with_live_provider_forbidden() -> 
     assert 'test "$rc" -eq 1' in workflow
     assert '.status == "REJECTED"' in workflow
     assert "grep -Eiq" in workflow
+    assert (
+        'install -m 0600 "/run/evoguard-raae-detached-approved/inputs/'
+        'release-artifact.json" "$RUNNER_TEMP/tampered-artifact.json"'
+    ) in workflow
+    assert (
+        'install -m 0600 "/run/evoguard-raae-detached-approved/inputs/'
+        'release-artifact-allow.raae" "$RUNNER_TEMP/tampered.raae"'
+    ) in workflow
     for control in (
         "tampered-artifact",
         "tampered-bundle",
