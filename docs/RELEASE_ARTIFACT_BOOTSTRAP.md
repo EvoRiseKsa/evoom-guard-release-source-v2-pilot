@@ -1,5 +1,10 @@
 # Release Artifact Admission V1 pilot procedure
 
+> Status: the first E/F/G round completed on 2026-07-22. See
+> [`ROUND2_EVIDENCE.md`](ROUND2_EVIDENCE.md) for exact runs, digests, observed
+> failures, cleanup state, and non-claims. This document remains the operating
+> procedure; it is not evidence by itself.
+
 This procedure adds one live E/F/G round after the published immutable v4.2.0
 bootstrap. It must not create a tag, release, Marketplace update, package,
 deployment, or production gate.
