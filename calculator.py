@@ -17,7 +17,9 @@ def main(argv: list[str] | None = None) -> int:
         print("usage: python -m calculator add LEFT RIGHT", file=sys.stderr)
         return 2
     _, left_text, right_text = arguments
-    print(add(int(left_text), int(right_text)))
+    left = int(left_text)
+    right = int(right_text)
+    print(add(left, right))
     return 0
 
 
