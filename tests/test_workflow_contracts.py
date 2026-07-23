@@ -298,6 +298,20 @@ def test_license_is_byte_identical_to_the_core_release_license() -> None:
     )
 
 
-def test_no_private_key_or_placeholder_pem_is_present() -> None:
-    assert list(ROOT.rglob("*.pem")) == []
-    assert list(ROOT.rglob("*.rsae")) == []
+def test_only_reviewed_public_evidence_pems_are_present() -> None:
+    public_roots = ROOT / "evidence" / "round2" / "public-keys"
+    expected = {
+        public_roots / "trusted-finalizer.pem",
+        public_roots / "artifact-admission-v1.pem",
+        public_roots / "artifact-digest-admission-v2.pem",
+        public_roots / "release-source-finalizer-v1.pem",
+        public_roots / "release-source-admission-v2.pem",
+        public_roots / "release-artifact-admission-v1.pem",
+    }
+    assert set(ROOT.rglob("*.pem")) == expected
+    for path in expected:
+        value = path.read_text(encoding="ascii")
+        assert value.startswith("-----BEGIN PUBLIC KEY-----\n")
+        assert value.endswith("-----END PUBLIC KEY-----\n")
+        assert "PRIVATE KEY" not in value
+    assert list(ROOT.rglob("*.private.pem")) == []
