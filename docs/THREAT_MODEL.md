@@ -12,15 +12,17 @@ GitHub Actions artifact transport and downloads its pinned verifier runtime and
 hash-locked dependencies; it is detached from the key/provider boundary, not
 offline.
 
-If a later E/F/G round succeeds, its separate positive claim is narrower:
-protected F freshly verifies the GitHub Artifact Attestation for one exact,
-bounded JSON artifact created by exact E from an already admitted source tree,
-then signs an RAAE that binds the artifact bytes, nested RSAE, E/F workflow
-identities, tool/provider pins, and six distinct public roots. G verifies those
-retained bytes and bindings without an Environment, protected signing key, or
-fresh provider call. The JSON artifact records the digest and size of
-`calculator.py`; it is not a compiled binary, package, release, or proof of a
-reproducible build.
+The completed Round 2 E/F/G round established a separate, narrower positive
+claim: protected F freshly verified the GitHub Artifact Attestation for one
+exact, bounded JSON artifact created by exact E from the already admitted
+source tree, then signed an RAAE binding the artifact bytes, nested RSAE, E/F
+workflow identities, tool/provider pins, and six distinct public roots. G
+verified those retained bytes and bindings without an Environment, protected
+signing key, or fresh provider call. The JSON artifact records the digest and
+size of `calculator.py`; it is not a compiled binary, package, release, or
+proof of a reproducible build. Exact runs, object digests, observed failures,
+and unexecuted matrix rows are recorded in
+[`ROUND2_EVIDENCE.md`](ROUND2_EVIDENCE.md).
 
 ## Candidate boundary
 
@@ -98,10 +100,10 @@ The pilot does not prove:
 - independent review when both GitHub accounts share one owner;
 - source correctness, absence of vulnerabilities, complete test coverage, or
   freedom from malicious behavior outside the narrow calculator protocol;
-- before a live E/F/G round, any artifact provenance at all; after a successful
-  round, anything beyond GitHub workflow provenance for the one exact JSON
-  descriptor—specifically not semantic correctness, reproducibility, safety,
-  or authorization of a package, image, release, publication, or deployment;
+- anything beyond GitHub workflow provenance and the recorded admission
+  bindings for the one exact JSON descriptor—specifically not semantic
+  correctness, reproducibility, safety, or authorization of a package, image,
+  release, publication, or deployment;
 - equivalence between the pilot JSON descriptor and a shippable product, or
   proof that two independent builders reproduce identical distributable bytes;
 - immutability of GitHub settings outside the recorded audit;

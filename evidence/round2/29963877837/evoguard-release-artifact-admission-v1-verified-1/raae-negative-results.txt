@@ -1,0 +1,5 @@
+tampered-artifact=REJECTED
+tampered-bundle=REJECTED
+wrong-raae-root=REJECTED
+wrong-outer-git-pin=REJECTED
+wrong-source-gh-pin=REJECTED

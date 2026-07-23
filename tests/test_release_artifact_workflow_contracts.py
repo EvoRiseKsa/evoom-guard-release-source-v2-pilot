@@ -237,9 +237,28 @@ def test_f_key_id_function_rejects_malformed_and_non_ed25519_keys(tmp_path: Path
         )
 
 
-def test_sixth_public_root_is_external_and_no_round_output_is_committed() -> None:
+def test_sixth_public_root_is_external_and_only_reviewed_output_is_committed() -> None:
     combined = "\n".join(text(path) for path in (E, F, G))
     assert "EVOGUARD_RELEASE_ARTIFACT_ADMISSION_V1_PUBLIC_KEY_B64" in combined
-    assert list(ROOT.rglob("*.raae")) == []
-    assert list(ROOT.rglob("*.rsae")) == []
+    evidence = ROOT / "evidence" / "round2"
+    assert set(ROOT.rglob("*.raae")) == {
+        evidence
+        / "29963656590"
+        / "evoguard-release-artifact-admission-v1-1"
+        / "release-artifact-allow.raae"
+    }
+    assert set(ROOT.rglob("*.rsae")) == {
+        evidence
+        / "29963160927"
+        / "evoguard-release-source-admission-v2-1"
+        / "source-allow.rsae",
+        evidence
+        / "29963621119"
+        / "evoguard-release-artifact-builder-1"
+        / "source-allow.rsae",
+        evidence
+        / "29963656590"
+        / "evoguard-release-artifact-v1-controls-1"
+        / "source-allow.rsae",
+    }
     assert list(ROOT.rglob("*.private.pem")) == []

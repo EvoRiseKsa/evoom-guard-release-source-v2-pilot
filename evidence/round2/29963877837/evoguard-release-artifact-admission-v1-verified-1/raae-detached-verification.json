@@ -1,0 +1,57 @@
+{
+  "admission": true,
+  "admitter": {
+    "runner_class": "github-hosted",
+    "workflow_blob_sha": "0cb6964eac644a314cecff4ddf634eb363089b9b",
+    "workflow_commit_sha": "382a24774e2da7d1117f8969455816bd7b941af2",
+    "workflow_event": "workflow_run",
+    "workflow_id": "318448420",
+    "workflow_path": ".github/workflows/evoguard-admit-release-artifact.yml",
+    "workflow_ref": "refs/heads/main",
+    "workflow_repository": "EvoRiseKsa/evoom-guard-release-source-v2-pilot",
+    "workflow_repository_id": "1308405021",
+    "workflow_run_attempt": 1,
+    "workflow_run_id": "29963656590"
+  },
+  "artifact": {
+    "kind": "file",
+    "sha256": "c2e573ad7556ec15db102e6e92c4197d2b413970e37f8d12f823ac4b7aefe64e",
+    "size": 290
+  },
+  "builder": {
+    "runner_class": "github-hosted",
+    "workflow_blob_sha": "8827c2b67634964e87a5f2c38d04e32c13aced5f",
+    "workflow_commit_sha": "382a24774e2da7d1117f8969455816bd7b941af2",
+    "workflow_event": "workflow_dispatch",
+    "workflow_id": "318448421",
+    "workflow_path": ".github/workflows/evoguard-build-release-artifact.yml",
+    "workflow_ref": "refs/heads/main",
+    "workflow_repository": "EvoRiseKsa/evoom-guard-release-source-v2-pilot",
+    "workflow_repository_id": "1308405021",
+    "workflow_run_attempt": 1,
+    "workflow_run_id": "29963621119"
+  },
+  "decision": "ALLOW",
+  "format": "EVOGUARD_RELEASE_ARTIFACT_ADMISSION_V1",
+  "key_id": "sha256:922b93371335b17b9b37d127227c0125cb9c4f78bfaf1d2694ffb25f3c146b1b",
+  "live_provider_reverification": false,
+  "ok": true,
+  "release_source": {
+    "bootstrap_guard_sha256": "789428de56c42808fadeed654fc3d9377d2456e15dadf53b8eb24e4287028c88",
+    "bundle": {
+      "path": "materials/release-source-admission.rsae",
+      "sha256": "89df65f0d7cdb4fe477d8607957f5cc5985cf21e453640384a4284ba9d94ee24",
+      "size": 35410
+    },
+    "decision": "ALLOW",
+    "format": "EVOGUARD_RELEASE_SOURCE_ADMISSION_V2",
+    "key_id": "sha256:a8dd7df155e63cefb8f40f9444818954642472bfd05d1d35ac9df9d49d1e5bd5",
+    "repository": "EvoRiseKsa/evoom-guard-release-source-v2-pilot",
+    "repository_id": "1308405021",
+    "target_commit_sha": "382a24774e2da7d1117f8969455816bd7b941af2",
+    "target_tree_sha": "5caede847e2cde175b3583d1b6bc3bef267a5d26"
+  },
+  "status": "VERIFIED",
+  "verification_scope": "detached-offline-retained-provider-evidence",
+  "verified": true
+}
