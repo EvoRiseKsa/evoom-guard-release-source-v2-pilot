@@ -138,12 +138,24 @@ administrator enforcement, required signatures, and force-push/deletion bans
 were enabled after the round. This evidence-only documentation commit occurs
 after the admitted target and is not itself covered by that target's ALLOW.
 
+## Durable public snapshot
+
+The exact non-secret artifacts downloaded from A through G and the two public
+GitHub/Sigstore attestation bundles are preserved under
+[`evidence/round2/`](../evidence/round2/). Its `SHA256SUMS` covers every retained
+file except itself and is enforced by the local/CI test suite. This avoids
+depending on the finite retention window of the original Actions artifacts.
+
+The durability copy does not add a new security claim or a new verification
+event. It contains no private signing key, Actions secret, credential, or
+customer data, and it remains subject to the exact limits below.
+
 ## Exact limit of the result
 
 Round 2 establishes one live binding from one exact source RSAE to one exact
 E-built JSON descriptor, one exact pair of E/F workflow identities, one fresh
-GitHub Artifact Attestation, one sixth-key RAAE, and one later detached offline
-verification of retained evidence.
+GitHub Artifact Attestation, one sixth-key RAAE, and one later detached
+verification over retained provider evidence without a fresh provider call.
 
 It does **not** establish independent review, vulnerability absence, repeated
 reproducibility, a general build system, package or image provenance, release

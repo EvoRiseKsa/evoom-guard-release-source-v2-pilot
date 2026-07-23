@@ -36,6 +36,9 @@ and detached G
 F returned `SEALED/ALLOW`; G returned `VERIFIED/ALLOW` without live provider
 re-verification; and all five retained-evidence mutations exercised by G returned
 `REJECTED`.
+The exact non-secret A-through-G artifacts and public attestation bundles are
+also hash-indexed under [`evidence/round2/`](evidence/round2/), so the record
+does not depend on the original Actions-artifact retention window.
 
 Established for these two bounded rounds:
 

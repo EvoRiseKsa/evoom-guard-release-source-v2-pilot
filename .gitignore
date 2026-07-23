@@ -8,3 +8,10 @@ evidence/
 pin-probe.json
 /scratch/
 /dist/
+
+# This one reviewed, secret-scanned, hash-indexed snapshot is intentionally
+# durable; other local evidence remains ignored.
+!evidence/
+evidence/*
+!evidence/round2/
+!evidence/round2/**
