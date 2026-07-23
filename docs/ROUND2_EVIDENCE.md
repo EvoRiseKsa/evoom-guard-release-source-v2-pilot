@@ -59,7 +59,7 @@ The five predecessor identities remain recorded in
 | C and D | [`29963160927/1`](https://github.com/EvoRiseKsa/evoom-guard-release-source-v2-pilot/actions/runs/29963160927/attempts/1) | `success`; protected C returned `SEALED/ALLOW`; detached D returned `VERIFIED/ALLOW`; 11/11 source mutations were rejected. |
 | E | [`29963621119/1`](https://github.com/EvoRiseKsa/evoom-guard-release-source-v2-pilot/actions/runs/29963621119/attempts/1) | `success`; verified the exact RSAE, built one canonical JSON data descriptor, and produced one GitHub-hosted attestation subject. |
 | F | [`29963656590/1`](https://github.com/EvoRiseKsa/evoom-guard-release-source-v2-pilot/actions/runs/29963656590/attempts/1) | `success`; protected F freshly verified E and returned `SEALED/ALLOW`. |
-| G | [`29963877837/1`](https://github.com/EvoRiseKsa/evoom-guard-release-source-v2-pilot/actions/runs/29963877837/attempts/1) | `success`; returned `VERIFIED/ALLOW` with `live_provider_reverification=false`; 5/5 artifact mutations were rejected. |
+| G | [`29963877837/1`](https://github.com/EvoRiseKsa/evoom-guard-release-source-v2-pilot/actions/runs/29963877837/attempts/1) | `success`; returned `VERIFIED/ALLOW` with `live_provider_reverification=false`; 5/5 retained-evidence mutations were rejected. |
 
 Both protected Environment approvals were performed by `MANA-awam`. That
 account and `EvoRiseKsa` have the same owner, so the approvals demonstrate
